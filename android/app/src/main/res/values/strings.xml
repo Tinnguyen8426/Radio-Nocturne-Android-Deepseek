@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Radio Nocturne</string>
+    <string name="title_activity_main">Radio Nocturne</string>
+    <string name="package_name">com.radio.nocturne</string>
+    <string name="custom_url_scheme">com.radio.nocturne</string>
+</resources>
