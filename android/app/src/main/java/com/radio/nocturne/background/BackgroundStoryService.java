@@ -32,6 +32,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public class BackgroundStoryService extends Service {
+    private static final int DEFAULT_HORROR_LEVEL = 50;
     public interface StoryListener {
         void onChunk(String text);
         void onDone(String fullText, String newText);
@@ -264,14 +265,14 @@ public class BackgroundStoryService extends Service {
             if (choice != null) {
                 JSONObject delta = choice.optJSONObject("delta");
                 if (delta != null && delta.has("content")) {
-                    return delta.optString("content", "");
+                    return safeJsonString(delta, "content");
                 }
                 JSONObject message = choice.optJSONObject("message");
                 if (message != null && message.has("content")) {
-                    return message.optString("content", "");
+                    return safeJsonString(message, "content");
                 }
                 if (choice.has("text")) {
-                    return choice.optString("text", "");
+                    return safeJsonString(choice, "text");
                 }
             }
             JSONArray output = parsed.optJSONArray("output");
@@ -282,7 +283,7 @@ public class BackgroundStoryService extends Service {
                     if (content != null && content.length() > 0) {
                         JSONObject contentItem = content.optJSONObject(0);
                         if (contentItem != null) {
-                            return contentItem.optString("text", "");
+                            return safeJsonString(contentItem, "text");
                         }
                     }
                 }
@@ -290,6 +291,12 @@ public class BackgroundStoryService extends Service {
         } catch (JSONException ignored) {
         }
         return "";
+    }
+
+    private static String safeJsonString(JSONObject obj, String key) {
+        if (obj == null || key == null || !obj.has(key) || obj.isNull(key)) return "";
+        String value = obj.optString(key, "");
+        return "null".equalsIgnoreCase(value) ? "" : value;
     }
 
     private void notifyChunk(String text) {
@@ -381,6 +388,47 @@ public class BackgroundStoryService extends Service {
         return builder.toString();
     }
 
+    private static String getHorrorInstruction(int level) {
+        if (level <= 30) {
+            return "Horror intensity: low. Keep the uncanny subtle and mostly psychological; minimize overt supernatural spectacle.";
+        }
+        if (level <= 70) {
+            return "Horror intensity: balanced. Mix subtle dread with occasional supernatural intrusions.";
+        }
+        return "Horror intensity: high. Make the supernatural overt, oppressive, and relentless.";
+    }
+
+    private static String getNarrativeInstruction(String style) {
+        if (style == null) return "";
+        switch (style) {
+            case "confession":
+                return "Narrative style: confession/testimony, raw and self-incriminating.";
+            case "dossier":
+                return "Narrative style: dossier/compiled evidence; still plain text (no bullet lists).";
+            case "diary":
+                return "Narrative style: diary or personal notes, intimate and fragmented.";
+            case "investigation":
+                return "Narrative style: investigative field report, skeptical but first-person.";
+            default:
+                return "";
+        }
+    }
+
+    private static String buildPersonalizationBlock(GenerationConfig config) {
+        if (config == null) return "";
+        StringBuilder builder = new StringBuilder();
+        if (config.horrorLevel != DEFAULT_HORROR_LEVEL) {
+            builder.append("- ").append(getHorrorInstruction(config.horrorLevel)).append("\n");
+        }
+        String narrativeInstruction = getNarrativeInstruction(config.narrativeStyle);
+        if (!narrativeInstruction.isEmpty()) {
+            builder.append("- ").append(narrativeInstruction).append("\n");
+        }
+        String lines = builder.toString().trim();
+        if (lines.isEmpty()) return "";
+        return "PERSONALIZATION (OPTIONAL)\n" + lines;
+    }
+
     private static String getMorganHayesPrompt(GenerationConfig config, String rawTopic) {
         String trimmedTopic = rawTopic == null ? "" : rawTopic.trim();
         String topicDirective;
@@ -393,6 +441,9 @@ public class BackgroundStoryService extends Service {
                 "Choose a premise that matches: Modern Noir + Urban Horror + Cosmic Horror + Conspiracy Thriller.\n" +
                 "Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane) that is not accidental, but part of a machination by a Secret Organization or a higher cosmic/supernatural power.").trim();
         }
+
+        String personalizationBlock = buildPersonalizationBlock(config);
+        String personalizationSection = personalizationBlock.isEmpty() ? "" : "\n\n" + personalizationBlock;
 
         return (
             "THE MORGAN HAYES PROTOCOL (REVISED: MODERN CONSPIRACY & SUPERNATURAL)\n\n" +
@@ -411,10 +462,12 @@ public class BackgroundStoryService extends Service {
             "- Attitude: speak directly to listeners (\"những kẻ tò mò\", \"những người đi tìm sự thật\", etc.). The normal world is a thin veil.\n\n" +
             "NARRATIVE FRAMING (MANDATORY)\n" +
             "Every story must be framed as \"received evidence\" or a \"submission\".\n" +
-            "Morgan must establish how this story reached the station (examples: an encrypted drive left at the studio door, a frantic voicemail transcribed into text, a thread deleted from the dark web, a dusty journal found in an estate sale).\n\n" +
+            "Morgan must establish how this story reached the station (examples: an encrypted drive left at the studio door, a frantic voicemail transcribed into text, a thread deleted from the dark web, a dusty journal found in an estate sale).\n" +
+            "Do this AFTER the intro sets the night/studio mood and introduces Morgan + the show.\n\n" +
             "INTRO LENGTH (MANDATORY)\n" +
             "- Morgan’s intro must be longer than usual: at least 12 sentences, slow-burn, paranoid, and atmospheric.\n" +
-            "- Morgan must explicitly mention (1) the city/night/time feeling, (2) why this evidence matters, (3) a warning to \"những kẻ tò mò\".\n\n" +
+            "- Morgan must explicitly mention (1) the city/night/time feeling, (2) the late-night studio atmosphere, (3) Morgan Hayes + \"Radio Truyện Đêm Khuya\", (4) why this evidence matters, (5) a warning to \"những kẻ tò mò\".\n" +
+            "- Do NOT jump straight to the evidence origin; open with the night + studio + show identity first.\n\n" +
             "POINT OF VIEW (MANDATORY)\n" +
             "- The story must be written entirely in FIRST-PERSON POV.\n" +
             "- The narrator uses “tôi” consistently throughout the story.\n" +
@@ -440,7 +493,8 @@ public class BackgroundStoryService extends Service {
             "- The antagonist must be a System / Organization / Cosmic Force (vast, organized, inevitable).\n" +
             "- Use everyday language; avoid heavy sci-fi jargon.\n" +
             "- Show, don’t tell: reveal through documents, whispers, logos, brief encounters.\n" +
-            "- Narrative voice: a confession / warning tape. Allow hesitation and confusion.\n\n" +
+            "- Narrative voice: a confession / warning tape. Allow hesitation and confusion." +
+            personalizationSection + "\n\n" +
             "TECH MINIMIZATION (MANDATORY)\n" +
             "- Keep technology references minimal and mundane (phone calls, old CCTV, basic email) and ONLY when truly necessary.\n" +
             "- Do NOT center the plot on AI, apps, VR, implants, laboratories, “simulation glitches”, or futuristic devices.\n" +
@@ -465,7 +519,7 @@ public class BackgroundStoryService extends Service {
             "- Formatting: insert a line break after each sentence for readability.\n" +
             "- Plain text only: do NOT use Markdown formatting (no emphasis markers, no headings, no bullet lists).\n" +
             "- Outro requirements:\n" +
-            "  - After the protagonist’s bad ending, Morgan delivers a short afterword (his thoughts on what the story implies about truth/reality and the listener’s complicity).\n" +
+            "  - After the protagonist’s bad ending, Morgan delivers a short afterword that includes his personal emotional reaction to this story and his thoughts on what it implies about truth/reality and the listener’s complicity.\n" +
             "  - The final line of the entire output MUST be exactly this signature (verbatim, no extra punctuation):\n" +
             config.outroSignature + "\n\n" +
             topicDirective + "\n\n" +
@@ -479,6 +533,8 @@ public class BackgroundStoryService extends Service {
         int remainingMin = Math.max(config.storyMinWords - alreadyWords, 0);
         int remainingMax = Math.max(config.storyHardMaxWords - alreadyWords, 0);
         String excerpt = getContextSnippet(existingText, config.storyContextWords);
+        String personalizationBlock = buildPersonalizationBlock(config);
+        String personalizationSection = personalizationBlock.isEmpty() ? "" : "\n\n" + personalizationBlock;
 
         String topicNote = !topic.isEmpty()
             ? "Keep the same topic or direction from the user: \"" + topic + "\"."
@@ -515,7 +571,8 @@ public class BackgroundStoryService extends Service {
             modeLine + "\n\n" +
             "STYLE & OUTPUT FORMAT\n" +
             "- Plain text only. No Markdown. Do NOT use emphasis markers or bullet lists.\n" +
-            "- Insert a line break after each sentence for readability.\n\n" +
+            "- Insert a line break after each sentence for readability." +
+            personalizationSection + "\n\n" +
             "TECH MINIMIZATION\n" +
             "- Keep technology references minimal and mundane, only when truly necessary.\n\n" +
             topicNote + "\n\n" +
@@ -537,6 +594,8 @@ public class BackgroundStoryService extends Service {
         public int storyTimeoutMs;
         public int storyContextWords;
         public int storyMaxPasses;
+        public int horrorLevel;
+        public String narrativeStyle;
         public String outroSignature;
         public String language;
         public String topic;

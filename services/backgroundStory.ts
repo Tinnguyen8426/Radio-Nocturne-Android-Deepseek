@@ -14,6 +14,8 @@ export interface BackgroundStoryPlugin {
     storyTimeoutMs: number;
     storyContextWords: number;
     storyMaxPasses: number;
+    horrorLevel: number;
+    narrativeStyle: string;
     outroSignature: string;
     language: string;
     topic: string;

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { streamStoryWithControls } from './services/deepseekService';
+import { generateTopicBatch, OUTRO_SIGNATURE, streamStoryWithControls } from './services/deepseekService';
 import { StoryStatus, GenerationState, GENRE_PROMPTS, Language, StoryRecord } from './types';
 import StoryDisplay from './components/StoryDisplay';
 import TTSPlayer, { TTSPlayerHandle } from './components/TTSPlayer';
@@ -22,9 +22,17 @@ import {
 import { BackgroundStory } from './services/backgroundStory';
 import { BackgroundTts } from './services/backgroundTts';
 import {
+  DEFAULT_STORY_PERSONALIZATION,
   getAllowBackgroundGeneration,
+  getStoryPersonalization,
+  TARGET_MAX_OFFSET,
+  TARGET_MAX_WORDS,
+  TARGET_MIN_OFFSET,
+  TARGET_MIN_WORDS,
   setAllowBackgroundGeneration,
+  setStoryPersonalization,
 } from './services/settingsStore';
+import type { NarrativeStyle, StoryPersonalization } from './services/settingsStore';
 
 // UI Translation Dictionary
 const TRANSLATIONS = {
@@ -58,6 +66,22 @@ const TRANSLATIONS = {
     backgroundHint: "Bật để app tiếp tục tạo truyện khi bạn chuyển sang ứng dụng khác.",
     backgroundUnavailable: "Thiết bị chưa hỗ trợ chạy nền.",
     backgroundGenerating: "Đang tạo truyện...",
+    personalizationTitle: "Cá nhân hóa nội dung",
+    personalizationHint: "Tùy chỉnh mức rùng rợn, phong cách kể và độ dài mục tiêu.",
+    horrorLabel: "Độ rùng rợn/siêu nhiên",
+    horrorHint: "0 = tinh tế, 100 = siêu nhiên dồn dập.",
+    styleLabel: "Phong cách kể",
+    styleHint: "Chọn phong cách tường thuật ưu tiên.",
+    lengthLabel: "Độ dài mục tiêu",
+    lengthHint: "Dải hiện tại:",
+    styleDefault: "Mặc định (Morgan Hayes)",
+    styleConfession: "Lời thú tội",
+    styleDossier: "Hồ sơ / tài liệu tổng hợp",
+    styleDiary: "Nhật ký cá nhân",
+    styleInvestigation: "Điều tra / báo cáo hiện trường",
+    horrorLow: "Tinh tế",
+    horrorMedium: "Cân bằng",
+    horrorHigh: "Dồn dập",
     ttsSettings: "Cài đặt giọng đọc",
     ttsSettingsHint: "Chọn giọng đọc của Google hoặc hệ thống.",
     ttsInstall: "Cài dữ liệu TTS",
@@ -92,10 +116,35 @@ const TRANSLATIONS = {
     backgroundHint: "Keep generating stories while you switch to other apps.",
     backgroundUnavailable: "Background mode is unavailable.",
     backgroundGenerating: "Generating story...",
+    personalizationTitle: "Story Personalization",
+    personalizationHint: "Tune intensity, narrative style, and target length.",
+    horrorLabel: "Horror/Supernatural Intensity",
+    horrorHint: "0 = subtle, 100 = relentless supernatural.",
+    styleLabel: "Narrative Style",
+    styleHint: "Choose a preferred narration style.",
+    lengthLabel: "Target Length",
+    lengthHint: "Current range:",
+    styleDefault: "Default (Morgan Hayes)",
+    styleConfession: "Confession",
+    styleDossier: "Dossier / compiled evidence",
+    styleDiary: "Personal diary",
+    styleInvestigation: "Investigation report",
+    horrorLow: "Subtle",
+    horrorMedium: "Balanced",
+    horrorHigh: "Relentless",
     ttsSettings: "TTS Settings",
     ttsSettingsHint: "Choose Google or system voice.",
     ttsInstall: "Install TTS data",
   }
+};
+
+const normalizeOutroSignature = (text: string) => {
+  if (!text) return text;
+  const lastIndex = text.lastIndexOf(OUTRO_SIGNATURE);
+  if (lastIndex === -1) return text;
+  const before = text.slice(0, lastIndex);
+  const cleanedBefore = before.split(OUTRO_SIGNATURE).join('');
+  return cleanedBefore + OUTRO_SIGNATURE;
 };
 
 const THEMED_RANDOM_TOPICS: Record<Language, string[]> = {
@@ -150,12 +199,46 @@ const App: React.FC = () => {
   const lastSavedKeyRef = useRef('');
   const [allowBackground, setAllowBackground] = useState(true);
   const [backgroundSupported, setBackgroundSupported] = useState(false);
+  const [personalization, setPersonalization] = useState<StoryPersonalization>(
+    DEFAULT_STORY_PERSONALIZATION
+  );
+  const [randomizingTopic, setRandomizingTopic] = useState(false);
+  const aiTopicCacheRef = useRef<string[]>([]);
   const isNativeAndroid =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+  const targetMinWords = TARGET_MIN_WORDS;
+  const targetMaxWords = TARGET_MAX_WORDS;
+  const targetWords = Math.min(targetMaxWords, Math.max(targetMinWords, personalization.targetWords));
+  const targetDisplayOffset = 2000;
+  const displayTargetWords = targetWords + targetDisplayOffset;
+  const derivedMinWords = Math.min(
+    targetMaxWords,
+    Math.max(targetMinWords, targetWords - TARGET_MIN_OFFSET)
+  );
+  const derivedHardMaxWords = Math.max(
+    derivedMinWords,
+    Math.min(targetMaxWords, Math.max(targetMinWords, targetWords + TARGET_MAX_OFFSET))
+  );
+  const displayMinWords = derivedMinWords + targetDisplayOffset;
+  const displayHardMaxWords = derivedHardMaxWords + targetDisplayOffset;
+  const horrorLabel =
+    personalization.horrorLevel <= 30
+      ? t.horrorLow
+      : personalization.horrorLevel <= 70
+        ? t.horrorMedium
+        : t.horrorHigh;
+  const narrativeOptions: Array<{ value: NarrativeStyle; label: string }> = [
+    { value: 'default', label: t.styleDefault },
+    { value: 'confession', label: t.styleConfession },
+    { value: 'dossier', label: t.styleDossier },
+    { value: 'diary', label: t.styleDiary },
+    { value: 'investigation', label: t.styleInvestigation },
+  ];
 
   useEffect(() => {
     setTopicInput('');
     storyCacheRef.current.clear();
+    aiTopicCacheRef.current = [];
     console.log("Language changed, cache cleared.");
   }, [language]);
 
@@ -164,14 +247,16 @@ const App: React.FC = () => {
     const load = async () => {
       try {
         await initStoryStore();
-        const [storedStories, storedKey, backgroundAllowed] = await Promise.all([
+        const [storedStories, storedKey, backgroundAllowed, storedPersonalization] = await Promise.all([
           listStories(),
           getStoredApiKey(),
           getAllowBackgroundGeneration(),
+          getStoryPersonalization(),
         ]);
         if (!alive) return;
         setStories(storedStories);
         setAllowBackground(backgroundAllowed);
+        setPersonalization(storedPersonalization);
         if (storedKey) {
           setApiKeyInput(storedKey);
           setApiKeyStatus('stored');
@@ -203,12 +288,31 @@ const App: React.FC = () => {
       .catch(() => setBackgroundSupported(true));
   }, [isNativeAndroid]);
 
+  const updatePersonalization = (next: Partial<StoryPersonalization>) => {
+    setPersonalization((prev) => {
+      const targetWords =
+        typeof next.targetWords === 'number'
+          ? Math.min(targetMaxWords, Math.max(targetMinWords, next.targetWords))
+          : prev.targetWords;
+      const merged = {
+        ...prev,
+        ...next,
+        targetWords,
+      };
+      setStoryPersonalization(merged).catch((error) => {
+        console.error("Failed to save personalization:", error);
+      });
+      return merged;
+    });
+  };
+
   const handleGenerate = async () => {
     setActiveStoryId(null);
     const trimmedTopic = topicInput.trim();
     const usingAutoTopic = trimmedTopic.length === 0;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
-    const cacheKey = usingAutoTopic ? null : `${language}:${trimmedTopic}`;
+    const personalizationKey = `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}`;
+    const cacheKey = usingAutoTopic ? null : `${language}:${trimmedTopic}:${personalizationKey}`;
     lastTopicRef.current = trimmedTopic;
     lastUsingAutoTopicRef.current = usingAutoTopic;
 
@@ -248,13 +352,14 @@ const App: React.FC = () => {
         { signal: controller.signal }
       );
 
+      fullText = normalizeOutroSignature(fullText);
       if (cacheKey) {
         storyCacheRef.current.set(cacheKey, { text: fullText });
         console.log("Cached new story for topic:", trimmedTopic);
       }
 
       if (requestId !== generationIdRef.current) return;
-      setState(prev => ({ ...prev, status: StoryStatus.COMPLETE }));
+      setState(prev => ({ ...prev, status: StoryStatus.COMPLETE, text: fullText }));
     } catch (error) {
       if (requestId !== generationIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
@@ -291,7 +396,8 @@ const App: React.FC = () => {
     const trimmedTopic = lastTopicRef.current;
     const usingAutoTopic = lastUsingAutoTopicRef.current;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
-    const cacheKey = usingAutoTopic ? null : `${language}:${trimmedTopic}`;
+    const personalizationKey = `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}`;
+    const cacheKey = usingAutoTopic ? null : `${language}:${trimmedTopic}:${personalizationKey}`;
     const requestId = ++generationIdRef.current;
     const controller = new AbortController();
     generationControllerRef.current = controller;
@@ -318,13 +424,14 @@ const App: React.FC = () => {
         { signal: controller.signal, existingText: initialText }
       );
 
+      fullText = normalizeOutroSignature(fullText);
       if (requestId !== generationIdRef.current) return;
       if (cacheKey) {
         storyCacheRef.current.set(cacheKey, { text: fullText });
         console.log("Cached new story for topic:", trimmedTopic);
       }
 
-      setState(prev => ({ ...prev, status: StoryStatus.COMPLETE }));
+      setState(prev => ({ ...prev, status: StoryStatus.COMPLETE, text: fullText }));
     } catch (error) {
       if (requestId !== generationIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
@@ -348,12 +455,29 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRandomTopic = () => {
-    if (state.status === StoryStatus.GENERATING) return;
-    const candidates = THEMED_RANDOM_TOPICS[language];
-    if (!candidates.length) return;
-    const selection = candidates[Math.floor(Math.random() * candidates.length)];
-    setTopicInput(selection);
+  const handleRandomTopic = async () => {
+    if (state.status === StoryStatus.GENERATING || randomizingTopic) return;
+    setRandomizingTopic(true);
+    try {
+      let candidates = aiTopicCacheRef.current;
+      if (!candidates.length) {
+        candidates = await generateTopicBatch(language).catch(() => []);
+        aiTopicCacheRef.current = candidates;
+      }
+
+      const fallback = THEMED_RANDOM_TOPICS[language];
+      const pool = candidates.length ? candidates : fallback;
+      if (!pool.length) return;
+
+      const selectionIndex = Math.floor(Math.random() * pool.length);
+      const selection = pool[selectionIndex];
+      if (candidates.length) {
+        aiTopicCacheRef.current = candidates.filter((_, idx) => idx !== selectionIndex);
+      }
+      setTopicInput(selection);
+    } finally {
+      setRandomizingTopic(false);
+    }
   };
 
   useEffect(() => {
@@ -483,7 +607,12 @@ const App: React.FC = () => {
               <label className="block text-xs font-mono text-zinc-500 uppercase mb-2">{t.labelSubject}</label>
               <div className="flex flex-col gap-3">
                 <div className="flex gap-2">
-                  <button onClick={handleRandomTopic} disabled={state.status === StoryStatus.GENERATING} className="px-4 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0" title={t.randomBtnTitle}>
+                  <button
+                    onClick={handleRandomTopic}
+                    disabled={state.status === StoryStatus.GENERATING || randomizingTopic}
+                    className="px-4 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0"
+                    title={t.randomBtnTitle}
+                  >
                     <Dices size={20} />
                   </button>
                   <input type="text" value={topicInput} onChange={(e) => setTopicInput(e.target.value)} placeholder={t.placeholderInput} className="flex-1 min-w-0 bg-zinc-950 border border-zinc-700 text-zinc-100 p-3 rounded-md focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-900 transition-all font-mono placeholder-zinc-700 text-sm" disabled={state.status === StoryStatus.GENERATING} onKeyDown={(e) => e.key === 'Enter' && handleGenerate()} />
@@ -631,6 +760,64 @@ const App: React.FC = () => {
                     }`}
                   />
                 </button>
+              </div>
+            </div>
+
+            <div className="w-full bg-zinc-900 border border-zinc-800 p-6 rounded-lg shadow-xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-mono uppercase tracking-wide text-zinc-500">{t.personalizationTitle}</p>
+                  <p className="text-xs text-zinc-500 mt-2">{t.personalizationHint}</p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <label className="flex flex-col gap-1 text-zinc-400">
+                  {t.horrorLabel} ({horrorLabel})
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={personalization.horrorLevel}
+                    onChange={(e) => updatePersonalization({ horrorLevel: Number(e.target.value) })}
+                    className="w-full accent-red-600"
+                  />
+                  <span className="text-[11px] text-zinc-500">{t.horrorHint}</span>
+                </label>
+
+                <label className="flex flex-col gap-1 text-zinc-400">
+                  {t.styleLabel}
+                  <select
+                    value={personalization.narrativeStyle}
+                    onChange={(e) =>
+                      updatePersonalization({ narrativeStyle: e.target.value as NarrativeStyle })
+                    }
+                    className="w-full bg-zinc-950 border border-zinc-700 text-zinc-100 p-2 rounded-md focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-900 transition-all font-mono text-sm"
+                  >
+                    {narrativeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] text-zinc-500">{t.styleHint}</span>
+                </label>
+
+                <label className="flex flex-col gap-1 text-zinc-400 md:col-span-2">
+                  {t.lengthLabel} ({displayTargetWords.toLocaleString()})
+                  <input
+                    type="range"
+                    min={targetMinWords}
+                    max={targetMaxWords}
+                    step="100"
+                    value={targetWords}
+                    onChange={(e) => updatePersonalization({ targetWords: Number(e.target.value) })}
+                    className="w-full accent-red-600"
+                  />
+                  <span className="text-[11px] text-zinc-500">
+                    {t.lengthHint} {displayMinWords.toLocaleString()}–{displayHardMaxWords.toLocaleString()}.
+                  </span>
+                </label>
               </div>
             </div>
 

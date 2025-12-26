@@ -2,7 +2,17 @@ import { Capacitor } from "@capacitor/core";
 import { Language } from "../types";
 import { getResolvedApiKey } from "./apiKeyStore";
 import { BackgroundStory } from "./backgroundStory";
-import { getAllowBackgroundGeneration } from "./settingsStore";
+import {
+  DEFAULT_STORY_PERSONALIZATION,
+  getAllowBackgroundGeneration,
+  getStoryPersonalization,
+  TARGET_MAX_OFFSET,
+  TARGET_MAX_WORDS,
+  TARGET_MIN_OFFSET,
+  TARGET_MIN_WORDS,
+  type NarrativeStyle,
+  type StoryPersonalization,
+} from "./settingsStore";
 
 const ENV_BASE_URL = import.meta.env.VITE_DEEPSEEK_BASE_URL;
 const DEFAULT_BASE_URL = import.meta.env.DEV
@@ -15,17 +25,74 @@ const BASE_URL = (
 ).replace(/\/$/, "");
 const DEFAULT_MAX_TOKENS = Number(import.meta.env.VITE_DEEPSEEK_MAX_TOKENS || 8192);
 const MODEL = import.meta.env.VITE_DEEPSEEK_MODEL || "deepseek-reasoner";
-const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.0);
-const STORY_MIN_WORDS = Number(import.meta.env.VITE_STORY_MIN_WORDS || 6500);
-const STORY_TARGET_WORDS = Number(import.meta.env.VITE_STORY_TARGET_WORDS || 7200);
-const STORY_HARD_MAX_WORDS = Number(import.meta.env.VITE_STORY_HARD_MAX_WORDS || 8000);
+const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.5);
 const STORY_TIMEOUT_MS = Number(import.meta.env.VITE_STORY_TIMEOUT_MS || 12 * 60 * 1000);
 const STORY_CONTEXT_WORDS = Number(import.meta.env.VITE_STORY_CONTEXT_WORDS || 320);
 const STORY_MAX_PASSES = Number(import.meta.env.VITE_STORY_MAX_PASSES || 6);
-const OUTRO_SIGNATURE =
+export const OUTRO_SIGNATURE =
   "Tôi là Morgan Hayes, và radio Truyện Đêm Khuya xin phép được tạm dừng tại đây. Chúc các bạn có một đêm ngon giấc nếu còn có thể.";
 
 type DeepSeekMessage = { role: "system" | "user" | "assistant"; content: string };
+
+const clampNumber = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const buildLengthConfig = (targetWords: number) => {
+  const normalizedTarget = clampNumber(Math.round(targetWords), TARGET_MIN_WORDS, TARGET_MAX_WORDS);
+  const minWords = clampNumber(
+    normalizedTarget - TARGET_MIN_OFFSET,
+    TARGET_MIN_WORDS,
+    TARGET_MAX_WORDS
+  );
+  const hardMaxWords = clampNumber(
+    normalizedTarget + TARGET_MAX_OFFSET,
+    TARGET_MIN_WORDS,
+    TARGET_MAX_WORDS
+  );
+  return {
+    targetWords: normalizedTarget,
+    minWords,
+    hardMaxWords: Math.max(hardMaxWords, minWords),
+  };
+};
+
+const getHorrorInstruction = (level: number) => {
+  if (level <= 30) {
+    return "Horror intensity: low. Keep the uncanny subtle and mostly psychological; minimize overt supernatural spectacle.";
+  }
+  if (level <= 70) {
+    return "Horror intensity: balanced. Mix subtle dread with occasional supernatural intrusions.";
+  }
+  return "Horror intensity: high. Make the supernatural overt, oppressive, and relentless.";
+};
+
+const getNarrativeInstruction = (style: NarrativeStyle) => {
+  switch (style) {
+    case "confession":
+      return "Narrative style: confession/testimony, raw and self-incriminating.";
+    case "dossier":
+      return "Narrative style: dossier/compiled evidence; still plain text (no bullet lists).";
+    case "diary":
+      return "Narrative style: diary or personal notes, intimate and fragmented.";
+    case "investigation":
+      return "Narrative style: investigative field report, skeptical but first-person.";
+    default:
+      return "";
+  }
+};
+
+const buildPersonalizationBlock = (settings: StoryPersonalization) => {
+  const lines: string[] = [];
+  if (settings.horrorLevel !== DEFAULT_STORY_PERSONALIZATION.horrorLevel) {
+    lines.push(getHorrorInstruction(settings.horrorLevel));
+  }
+  const narrativeInstruction = getNarrativeInstruction(settings.narrativeStyle);
+  if (narrativeInstruction) {
+    lines.push(narrativeInstruction);
+  }
+  if (!lines.length) return "";
+  return `PERSONALIZATION (OPTIONAL)\n${lines.map((line) => `- ${line}`).join("\n")}`;
+};
 
 const streamChatCompletion = async (
   messages: DeepSeekMessage[],
@@ -112,8 +179,15 @@ const streamChatCompletion = async (
 };
 
 // --- THE MORGAN HAYES PROTOCOL ---
-const getMorganHayesPrompt = (lang: Language, rawTopic?: string) => {
+const getMorganHayesPrompt = (
+  lang: Language,
+  rawTopic: string | undefined,
+  personalization: StoryPersonalization,
+  lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number }
+) => {
   const trimmedTopic = rawTopic?.trim();
+  const personalizationBlock = buildPersonalizationBlock(personalization);
+  const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
   const topicDirective = trimmedTopic
     ? `
 USER INPUT (TOPIC OR STORY DIRECTION):
@@ -147,10 +221,12 @@ You are Morgan Hayes, the host of a fictional late-night radio show: "Radio Truy
 NARRATIVE FRAMING (MANDATORY)
 Every story must be framed as "received evidence" or a "submission".
 Morgan must establish how this story reached the station (examples: an encrypted drive left at the studio door, a frantic voicemail transcribed into text, a thread deleted from the dark web, a dusty journal found in an estate sale).
+Do this AFTER the intro sets the night/studio mood and introduces Morgan + the show.
 
 INTRO LENGTH (MANDATORY)
 - Morgan’s intro must be longer than usual: at least 12 sentences, slow-burn, paranoid, and atmospheric.
-- Morgan must explicitly mention (1) the city/night/time feeling, (2) why this evidence matters, (3) a warning to "những kẻ tò mò".
+- Morgan must explicitly mention (1) the city/night/time feeling, (2) the late-night studio atmosphere, (3) Morgan Hayes + "Radio Truyện Đêm Khuya", (4) why this evidence matters, (5) a warning to "những kẻ tò mò".
+- Do NOT jump straight to the evidence origin; open with the night + studio + show identity first.
 
 POINT OF VIEW (MANDATORY)
 - The story must be written entirely in FIRST-PERSON POV.
@@ -182,7 +258,7 @@ CONTENT GUIDELINES
 - The antagonist must be a System / Organization / Cosmic Force (vast, organized, inevitable).
 - Use everyday language; avoid heavy sci-fi jargon.
 - Show, don’t tell: reveal through documents, whispers, logos, brief encounters.
-- Narrative voice: a confession / warning tape. Allow hesitation and confusion.
+- Narrative voice: a confession / warning tape. Allow hesitation and confusion.${personalizationSection}
 
 TECH MINIMIZATION (MANDATORY)
 - Keep technology references minimal and mundane (phone calls, old CCTV, basic email) and ONLY when truly necessary.
@@ -205,13 +281,13 @@ NO SOUND DESCRIPTION / NO SFX
 - The entire output must be spoken narration only.
 
 SPECIAL REQUIREMENTS
-- Length: aim ${STORY_MIN_WORDS}–${STORY_HARD_MAX_WORDS} words total (target around ${STORY_TARGET_WORDS}). Do not exceed ${STORY_HARD_MAX_WORDS} words.
+- Length: aim ${lengthConfig.minWords}–${lengthConfig.hardMaxWords} words total (target around ${lengthConfig.targetWords}). Do not exceed ${lengthConfig.hardMaxWords} words.
 - To reach length, add more plot events, evidence fragments, reversals, and consequences (new content), not repetitive filler or extended description of the same moment.
 - No happy endings: the Organization/Entity wins; the protagonist is silenced, captured, absorbed, or goes mad.
 - Formatting: insert a line break after each sentence for readability.
 - Plain text only: do NOT use Markdown formatting (no emphasis markers, no headings, no bullet lists).
 - Outro requirements:
-  - After the protagonist’s bad ending, Morgan delivers a short afterword (his thoughts on what the story implies about truth/reality and the listener’s complicity).
+  - After the protagonist’s bad ending, Morgan delivers a short afterword that includes his personal emotional reaction to this story and his thoughts on what it implies about truth/reality and the listener’s complicity.
   - The final line of the entire output MUST be exactly this signature (verbatim, no extra punctuation):
 ${OUTRO_SIGNATURE}
 
@@ -253,13 +329,17 @@ const getContinuationPrompt = (
   lang: Language,
   rawTopic: string,
   existingText: string,
-  mode: "continue" | "finalize"
+  mode: "continue" | "finalize",
+  personalization: StoryPersonalization,
+  lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number }
 ) => {
   const topic = rawTopic?.trim();
   const alreadyWords = countWords(existingText);
-  const remainingMin = Math.max(STORY_MIN_WORDS - alreadyWords, 0);
-  const remainingMax = Math.max(STORY_HARD_MAX_WORDS - alreadyWords, 0);
+  const remainingMin = Math.max(lengthConfig.minWords - alreadyWords, 0);
+  const remainingMax = Math.max(lengthConfig.hardMaxWords - alreadyWords, 0);
   const excerpt = getContextSnippet(existingText, STORY_CONTEXT_WORDS);
+  const personalizationBlock = buildPersonalizationBlock(personalization);
+  const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
 
   const topicNote = topic
     ? `Keep the same topic or direction from the user: "${topic}".`
@@ -284,8 +364,8 @@ CONTINUATION MODE (MANDATORY)
 
 LENGTH CONTROL (MANDATORY)
 - Existing text length: ~${alreadyWords} words.
-- Write at least ${remainingMin} more words if needed to reach the total minimum ${STORY_MIN_WORDS}.
-- Do NOT exceed ${remainingMax} additional words (hard cap), so the total stays <= ${STORY_HARD_MAX_WORDS}.
+- Write at least ${remainingMin} more words if needed to reach the total minimum ${lengthConfig.minWords}.
+- Do NOT exceed ${remainingMax} additional words (hard cap), so the total stays <= ${lengthConfig.hardMaxWords}.
 ${mode === "finalize"
       ? `- End the story definitively (no cliffhanger): reveal the hidden structure/force, deliver a bad ending, then Morgan’s outro (include his thoughts).\n- The final line of the entire output MUST be exactly: ${OUTRO_SIGNATURE}`
       : `- Do NOT finish the story yet. Do NOT write Morgan’s outro yet. Keep escalating with new events and evidence; stop at a natural breakpoint without concluding.`}
@@ -293,6 +373,7 @@ ${mode === "finalize"
 STYLE & OUTPUT FORMAT
 - Plain text only. No Markdown. Do NOT use emphasis markers or bullet lists.
 - Insert a line break after each sentence for readability.
+${personalizationSection}
 
 TECH MINIMIZATION
 - Keep technology references minimal and mundane, only when truly necessary.
@@ -323,6 +404,9 @@ export const streamStoryWithControls = async (
   const apiKey = await getResolvedApiKey();
   if (!apiKey) throw new Error("API Key is missing");
 
+  const personalization = await getStoryPersonalization();
+  const lengthConfig = buildLengthConfig(personalization.targetWords);
+
   const allowBackground = await getAllowBackgroundGeneration();
   const isAndroidNative =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
@@ -339,12 +423,14 @@ export const streamStoryWithControls = async (
         model: MODEL,
         temperature: STORY_TEMPERATURE,
         maxTokens: Math.max(4096, DEFAULT_MAX_TOKENS),
-        storyMinWords: STORY_MIN_WORDS,
-        storyTargetWords: STORY_TARGET_WORDS,
-        storyHardMaxWords: STORY_HARD_MAX_WORDS,
+        storyMinWords: lengthConfig.minWords,
+        storyTargetWords: lengthConfig.targetWords,
+        storyHardMaxWords: lengthConfig.hardMaxWords,
         storyTimeoutMs: STORY_TIMEOUT_MS,
         storyContextWords: STORY_CONTEXT_WORDS,
         storyMaxPasses: STORY_MAX_PASSES,
+        horrorLevel: personalization.horrorLevel,
+        narrativeStyle: personalization.narrativeStyle,
         outroSignature: OUTRO_SIGNATURE,
         language: lang,
         topic,
@@ -410,8 +496,10 @@ export const streamStoryWithControls = async (
     }
 
     const wordsSoFar = countWords(fullText);
-    const hardCapReached = STORY_HARD_MAX_WORDS ? wordsSoFar >= STORY_HARD_MAX_WORDS : false;
-    const minReached = wordsSoFar >= STORY_MIN_WORDS;
+    const hardCapReached = lengthConfig.hardMaxWords
+      ? wordsSoFar >= lengthConfig.hardMaxWords
+      : false;
+    const minReached = wordsSoFar >= lengthConfig.minWords;
 
     const isFirstPass = wordsSoFar === 0;
     const isLastPass = passIndex === maxPasses - 1;
@@ -420,27 +508,31 @@ export const streamStoryWithControls = async (
       : "continue";
 
     const prompt = isFirstPass
-      ? getMorganHayesPrompt(lang, topic)
-      : getContinuationPrompt(lang, topic, fullText, mode);
+      ? getMorganHayesPrompt(lang, topic, personalization, lengthConfig)
+      : getContinuationPrompt(lang, topic, fullText, mode, personalization, lengthConfig);
 
     await runPass(prompt);
 
     const wordsAfter = countWords(fullText);
-    const doneEnough = wordsAfter >= STORY_MIN_WORDS;
+    const doneEnough = wordsAfter >= lengthConfig.minWords;
     const finished = hasOutroSignature(fullText);
-    const hitHardMax = STORY_HARD_MAX_WORDS ? wordsAfter >= STORY_HARD_MAX_WORDS : false;
+    const hitHardMax = lengthConfig.hardMaxWords
+      ? wordsAfter >= lengthConfig.hardMaxWords
+      : false;
     if ((doneEnough && finished) || hitHardMax) break;
   }
 
   const totalWords = countWords(fullText);
   const finished = hasOutroSignature(fullText);
-  if (totalWords < STORY_MIN_WORDS) {
-    console.warn(`Story ended with ${totalWords} words, below minimum ${STORY_MIN_WORDS}`);
+  if (totalWords < lengthConfig.minWords) {
+    console.warn(`Story ended with ${totalWords} words, below minimum ${lengthConfig.minWords}`);
   }
-  if (STORY_HARD_MAX_WORDS && totalWords > STORY_HARD_MAX_WORDS) {
-    console.warn(`Story ended with ${totalWords} words, above hard max ${STORY_HARD_MAX_WORDS}`);
+  if (lengthConfig.hardMaxWords && totalWords > lengthConfig.hardMaxWords) {
+    console.warn(
+      `Story ended with ${totalWords} words, above hard max ${lengthConfig.hardMaxWords}`
+    );
   }
-  if (totalWords >= STORY_MIN_WORDS && !finished) {
+  if (totalWords >= lengthConfig.minWords && !finished) {
     console.warn("Story reached minimum length but appears unfinished (missing outro signature).");
   }
 
@@ -460,6 +552,8 @@ const streamStoryNative = async (
     storyTimeoutMs: number;
     storyContextWords: number;
     storyMaxPasses: number;
+    horrorLevel: number;
+    narrativeStyle: NarrativeStyle;
     outroSignature: string;
     language: Language;
     topic: string;
@@ -517,6 +611,8 @@ const streamStoryNative = async (
       storyTimeoutMs: config.storyTimeoutMs,
       storyContextWords: config.storyContextWords,
       storyMaxPasses: config.storyMaxPasses,
+      horrorLevel: config.horrorLevel,
+      narrativeStyle: config.narrativeStyle,
       outroSignature: config.outroSignature,
       language: config.language,
       topic: config.topic,
@@ -556,17 +652,29 @@ export const generateTopicBatch = async (lang: Language): Promise<string[]> => {
   const apiKey = await getResolvedApiKey();
   if (!apiKey) throw new Error("API Key is missing");
 
-  const prompt = `
-    Hãy tạo ra 15 tiêu đề: thư, email hoặc bất kỳ phương tiện khác nào mang tính chủ đề gửi về cho chương trình Radio kinh dị.
-    NGÔN NGỮ OUTPUT: Tiếng Việt. 
-    
-    YÊU CẦU:
-    - Tiêu đề phải gợi trí tò mò, nghe như một lời thú tội hoặc cầu cứu, cảnh báo hoặc tuyệt vọng.
-    - Ưu tiên chủ đề: thuyết âm mưu, tổ chức bí mật, đô thị hiện đại bị "lỗi thực tại", siêu nhiên xâm nhập đời thường, cosmic horror (tỉ lệ chủ đề thuyết âm mưu/siêu nhiên 70%, chủ đề khác 30%).
-    - Gợi cảm giác hiện thực đời thường bị xâm nhập bởi điều bất thường xảy ra thật (như một vật chứng gửi về đài).
-    - HẠN CHẾ CÔNG NGHỆ: tránh AI/app/VR/cấy ghép/chip/phòng thí nghiệm; nếu có nhắc công nghệ thì chỉ ở mức đời thường và thật sự cần thiết.
-    - Không đánh số. Ngăn cách bằng "|||".
-  `;
+  const prompt = lang === "vi"
+    ? `
+Hãy tạo ra 15 tiêu đề: thư, email hoặc bất kỳ phương tiện khác nào mang tính chủ đề gửi về cho chương trình Radio kinh dị.
+NGÔN NGỮ OUTPUT: Tiếng Việt.
+
+YÊU CẦU:
+- Tiêu đề phải gợi trí tò mò, nghe như một lời thú tội hoặc cầu cứu, cảnh báo hoặc tuyệt vọng.
+- Ưu tiên chủ đề: thuyết âm mưu, tổ chức bí mật, đô thị hiện đại bị "lỗi thực tại", siêu nhiên xâm nhập đời thường, cosmic horror (tỉ lệ chủ đề thuyết âm mưu/siêu nhiên 70%, chủ đề khác 30%).
+- Gợi cảm giác hiện thực đời thường bị xâm nhập bởi điều bất thường xảy ra thật (như một vật chứng gửi về đài).
+- HẠN CHẾ CÔNG NGHỆ: tránh AI/app/VR/cấy ghép/chip/phòng thí nghiệm; nếu có nhắc công nghệ thì chỉ ở mức đời thường và thật sự cần thiết.
+- Không đánh số. Ngăn cách bằng "|||".
+`.trim()
+    : `
+Generate 15 subject lines for letters, emails, or other submissions sent to a late-night horror radio show.
+OUTPUT LANGUAGE: English.
+
+REQUIREMENTS:
+- Titles must be curiosity-driven, sounding like confessions, pleas, warnings, or desperation.
+- Prioritize themes: conspiracy, secret organizations, modern city "reality glitches", supernatural intrusions, cosmic horror (70% conspiracy/supernatural, 30% other).
+- Grounded in everyday reality being breached by something real, like evidence sent to the station.
+- LIMIT TECHNOLOGY: avoid AI/apps/VR/implants/chips/labs; if tech is mentioned, keep it mundane and necessary.
+- No numbering. Separate entries with "|||".
+`.trim();
 
   try {
     const response = await fetch(`${BASE_URL}/chat/completions`, {
