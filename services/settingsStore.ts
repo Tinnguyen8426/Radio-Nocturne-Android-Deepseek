@@ -3,8 +3,11 @@ import { Preferences } from '@capacitor/preferences';
 
 const KEY_BACKGROUND = 'allowBackgroundGeneration';
 const KEY_PERSONALIZATION = 'storyPersonalization';
+const KEY_STORY_MODEL = 'storyModel';
+const KEY_REUSE_CACHE = 'reuseStoryCache';
 
 export type NarrativeStyle = 'default' | 'confession' | 'dossier' | 'diary' | 'investigation';
+export type StoryModel = 'deepseek-chat' | 'deepseek-reasoner';
 
 export interface StoryPersonalization {
   horrorLevel: number;
@@ -13,6 +16,7 @@ export interface StoryPersonalization {
 }
 
 const STORY_TARGET_WORDS = Number(import.meta.env.VITE_STORY_TARGET_WORDS || 7200);
+const ENV_STORY_MODEL = import.meta.env.VITE_DEEPSEEK_MODEL || 'deepseek-reasoner';
 export const TARGET_MIN_WORDS = 2000;
 export const TARGET_MAX_WORDS = 10000;
 export const TARGET_MIN_OFFSET = 700;
@@ -25,6 +29,7 @@ const NARRATIVE_STYLES: NarrativeStyle[] = [
   'diary',
   'investigation',
 ];
+const STORY_MODELS: StoryModel[] = ['deepseek-reasoner', 'deepseek-chat'];
 
 export const DEFAULT_STORY_PERSONALIZATION: StoryPersonalization = {
   horrorLevel: 50,
@@ -33,6 +38,16 @@ export const DEFAULT_STORY_PERSONALIZATION: StoryPersonalization = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const normalizeStoryModel = (input?: string | null): StoryModel => {
+  if (STORY_MODELS.includes(input as StoryModel)) {
+    return input as StoryModel;
+  }
+  if (STORY_MODELS.includes(ENV_STORY_MODEL as StoryModel)) {
+    return ENV_STORY_MODEL as StoryModel;
+  }
+  return 'deepseek-reasoner';
+};
 
 const normalizePersonalization = (
   input: Partial<StoryPersonalization> | null | undefined
@@ -94,6 +109,24 @@ export const getStoryPersonalization = async (): Promise<StoryPersonalization> =
   }
 };
 
+export const getReuseStoryCache = async (): Promise<boolean> => {
+  if (!Capacitor.isNativePlatform()) {
+    const raw = localStorage.getItem(KEY_REUSE_CACHE);
+    return raw ? raw === 'true' : false;
+  }
+  const { value } = await Preferences.get({ key: KEY_REUSE_CACHE });
+  if (value === null || value === undefined || value === '') return false;
+  return value === 'true';
+};
+
+export const setReuseStoryCache = async (value: boolean) => {
+  if (!Capacitor.isNativePlatform()) {
+    localStorage.setItem(KEY_REUSE_CACHE, String(value));
+    return;
+  }
+  await Preferences.set({ key: KEY_REUSE_CACHE, value: String(value) });
+};
+
 export const setStoryPersonalization = async (value: StoryPersonalization) => {
   const normalized = normalizePersonalization(value);
   const payload = JSON.stringify(normalized);
@@ -102,4 +135,22 @@ export const setStoryPersonalization = async (value: StoryPersonalization) => {
     return;
   }
   await Preferences.set({ key: KEY_PERSONALIZATION, value: payload });
+};
+
+export const getStoryModel = async (): Promise<StoryModel> => {
+  if (!Capacitor.isNativePlatform()) {
+    const raw = localStorage.getItem(KEY_STORY_MODEL);
+    return normalizeStoryModel(raw);
+  }
+  const { value } = await Preferences.get({ key: KEY_STORY_MODEL });
+  return normalizeStoryModel(value);
+};
+
+export const setStoryModel = async (value: StoryModel) => {
+  const normalized = normalizeStoryModel(value);
+  if (!Capacitor.isNativePlatform()) {
+    localStorage.setItem(KEY_STORY_MODEL, normalized);
+    return;
+  }
+  await Preferences.set({ key: KEY_STORY_MODEL, value: normalized });
 };

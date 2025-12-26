@@ -5,6 +5,7 @@ import { BackgroundStory } from "./backgroundStory";
 import {
   DEFAULT_STORY_PERSONALIZATION,
   getAllowBackgroundGeneration,
+  getStoryModel,
   getStoryPersonalization,
   TARGET_MAX_OFFSET,
   TARGET_MAX_WORDS,
@@ -24,7 +25,7 @@ const BASE_URL = (
   (Capacitor.isNativePlatform() ? DEFAULT_NATIVE_BASE_URL : DEFAULT_BASE_URL)
 ).replace(/\/$/, "");
 const DEFAULT_MAX_TOKENS = Number(import.meta.env.VITE_DEEPSEEK_MAX_TOKENS || 8192);
-const MODEL = import.meta.env.VITE_DEEPSEEK_MODEL || "deepseek-reasoner";
+const TOPIC_MODEL = "deepseek-chat";
 const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.5);
 const STORY_TIMEOUT_MS = Number(import.meta.env.VITE_STORY_TIMEOUT_MS || 12 * 60 * 1000);
 const STORY_CONTEXT_WORDS = Number(import.meta.env.VITE_STORY_CONTEXT_WORDS || 320);
@@ -33,6 +34,19 @@ export const OUTRO_SIGNATURE =
   "Tôi là Morgan Hayes, và radio Truyện Đêm Khuya xin phép được tạm dừng tại đây. Chúc các bạn có một đêm ngon giấc nếu còn có thể.";
 
 type DeepSeekMessage = { role: "system" | "user" | "assistant"; content: string };
+
+type StoryFlavor = {
+  engine: string;
+  revealMethod: string;
+  endingMode: string;
+  tone: string;
+  protagonistName: string;
+  protagonistRole: string;
+  primarySetting: string;
+  evidenceOrigin: string;
+  keyMotif: string;
+  introMood: string;
+};
 
 const clampNumber = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -81,6 +95,192 @@ const getNarrativeInstruction = (style: NarrativeStyle) => {
   }
 };
 
+const STORY_ENGINES = [
+  "investigation spiral",
+  "social contagion/meme",
+  "personal haunting",
+  "bureaucratic trap",
+  "mistaken identity",
+  "slow replacement",
+  "reality loop",
+  "collective delusion",
+  "ritual obligation",
+];
+
+const STORY_REVEALS = [
+  "leaked minutes",
+  "corrupted email thread",
+  "court transcript",
+  "maintenance ticket logs",
+  "voice-to-text diary",
+  "photo metadata",
+  "missing persons dossier",
+  "old receipts and stamps trail",
+  "handwritten marginalia",
+];
+
+const STORY_ENDINGS = [
+  "memory overwrite",
+  "identity swap",
+  "time reset with a scar",
+  "coerced silence",
+  "ritual erasure",
+  "audience complicity",
+  "permanent dislocation",
+  "social disappearance",
+];
+
+const STORY_TONES = [
+  "bleak noir",
+  "paranoid and intimate",
+  "clinical and cold",
+  "elegiac",
+  "dry and matter-of-fact",
+  "fever-dream dread",
+];
+
+const STORY_PROTAGONIST_NAMES = [
+  "Evelyn Ward",
+  "Jonah Price",
+  "Mara Linden",
+  "Theo Alvarez",
+  "Nadia Petrov",
+  "Arjun Rao",
+  "Iris Ko",
+  "Maya Bishop",
+  "Caleb Hart",
+  "Lena Voss",
+  "Owen Reyes",
+  "Sora Kaito",
+  "Nico Laurent",
+  "Daria Novak",
+  "Amir Haddad",
+  "Lea Fischer",
+  "Rui Tan",
+  "Eva Morland",
+  "Silas Quinn",
+  "Noah Mercer",
+];
+
+const STORY_PROTAGONIST_ROLES = [
+  "night-shift security guard",
+  "ride-share driver",
+  "apartment manager",
+  "ER nurse",
+  "delivery rider",
+  "library archivist",
+  "subway technician",
+  "court clerk",
+  "mortuary assistant",
+  "radio repair tech",
+  "paralegal",
+  "school counselor",
+  "warehouse picker",
+  "building inspector",
+  "call center agent",
+  "photo lab worker",
+];
+
+const STORY_SETTINGS = [
+  "a mid-rise apartment block",
+  "a suburban strip mall",
+  "a municipal service center",
+  "a night bus route",
+  "a hospital wing",
+  "a riverside neighborhood",
+  "an old market",
+  "a commuter station",
+  "a rooftop water tank",
+  "a storage facility",
+  "a co-working office",
+  "a public housing tower",
+];
+
+const STORY_EVIDENCE_ORIGINS = [
+  "a sealed envelope slid under the studio door",
+  "a memory card mailed with no return address",
+  "a voicemail sent from a number that no longer exists",
+  "a torn notebook left on the studio steps",
+  "a bundle of photocopies from a municipal office",
+  "a taxi receipt with handwritten notes",
+  "a flash drive found in the station mailbox",
+  "a burned CD recovered from a thrift store",
+];
+
+const STORY_MOTIFS = [
+  "a missing door",
+  "a repeated address",
+  "a symbol drawn in chalk",
+  "a list of names",
+  "a flickering streetlight pattern",
+  "a receipt stamp",
+  "a familiar scent",
+  "a wrong date",
+  "a locked room",
+  "a red thread",
+];
+
+const STORY_INTRO_MOODS = [
+  "a humid night with power flickers",
+  "thin rain against the window",
+  "a quiet city after the last train",
+  "wind scraping the rooftop antenna",
+  "a sleepless neon glow",
+  "a cold night with empty streets",
+];
+
+let lastFlavorKey: string | null = null;
+
+const createSeededRandom = (seed: number) => {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+};
+
+const hashString = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const pickFrom = <T,>(items: T[], random: () => number) =>
+  items[Math.floor(random() * items.length)];
+
+const selectStoryFlavor = (seedText?: string): StoryFlavor => {
+  const random = seedText ? createSeededRandom(hashString(seedText)) : Math.random;
+  let flavor: StoryFlavor;
+  let attempts = 0;
+  do {
+    flavor = {
+      engine: pickFrom(STORY_ENGINES, random),
+      revealMethod: pickFrom(STORY_REVEALS, random),
+      endingMode: pickFrom(STORY_ENDINGS, random),
+      tone: pickFrom(STORY_TONES, random),
+      protagonistName: pickFrom(STORY_PROTAGONIST_NAMES, random),
+      protagonistRole: pickFrom(STORY_PROTAGONIST_ROLES, random),
+      primarySetting: pickFrom(STORY_SETTINGS, random),
+      evidenceOrigin: pickFrom(STORY_EVIDENCE_ORIGINS, random),
+      keyMotif: pickFrom(STORY_MOTIFS, random),
+      introMood: pickFrom(STORY_INTRO_MOODS, random),
+    };
+    attempts += 1;
+  } while (
+    !seedText &&
+    attempts < 6 &&
+    lastFlavorKey ===
+      `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`
+  );
+  if (!seedText) {
+    lastFlavorKey = `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`;
+  }
+  return flavor;
+};
+
 const buildPersonalizationBlock = (settings: StoryPersonalization) => {
   const lines: string[] = [];
   if (settings.horrorLevel !== DEFAULT_STORY_PERSONALIZATION.horrorLevel) {
@@ -94,13 +294,28 @@ const buildPersonalizationBlock = (settings: StoryPersonalization) => {
   return `PERSONALIZATION (OPTIONAL)\n${lines.map((line) => `- ${line}`).join("\n")}`;
 };
 
+const buildFlavorBlock = (flavor: StoryFlavor) => `
+VARIATION ANCHOR (MANDATORY)
+- Narrative engine: ${flavor.engine}
+- Reveal method: ${flavor.revealMethod}
+- Ending mode: ${flavor.endingMode}
+- Tone bias: ${flavor.tone}
+- Protagonist name: ${flavor.protagonistName}
+- Protagonist role: ${flavor.protagonistRole}
+- Primary setting: ${flavor.primarySetting}
+- Evidence origin: ${flavor.evidenceOrigin}
+- Key motif: ${flavor.keyMotif}
+- Intro mood: ${flavor.introMood}
+`.trim();
+
 const streamChatCompletion = async (
   messages: DeepSeekMessage[],
   {
     temperature,
     maxTokens,
     signal,
-  }: { temperature: number; maxTokens: number; signal?: AbortSignal },
+    model,
+  }: { temperature: number; maxTokens: number; signal?: AbortSignal; model: string },
   apiKey: string,
   onChunk: (text: string) => void,
   shouldStop?: () => boolean
@@ -113,7 +328,7 @@ const streamChatCompletion = async (
     },
     signal,
     body: JSON.stringify({
-      model: MODEL,
+      model,
       messages,
       temperature,
       max_tokens: maxTokens,
@@ -188,11 +403,13 @@ const getMorganHayesPrompt = (
   lang: Language,
   rawTopic: string | undefined,
   personalization: StoryPersonalization,
-  lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number }
+  lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number },
+  flavor: StoryFlavor
 ) => {
   const trimmedTopic = rawTopic?.trim();
   const personalizationBlock = buildPersonalizationBlock(personalization);
   const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
+  const flavorSection = buildFlavorBlock(flavor);
   const topicDirective = trimmedTopic
     ? `
 USER INPUT (TOPIC OR STORY DIRECTION):
@@ -201,8 +418,8 @@ USER INPUT (TOPIC OR STORY DIRECTION):
 `.trim()
     : `
 NO SPECIFIC TOPIC OR DIRECTION PROVIDED.
-Choose a premise that matches: Modern Noir + Urban Horror + Cosmic Horror + Conspiracy Thriller.
-Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane) that is not accidental, but part of a machination by a Secret Organization or a higher cosmic/supernatural power.
+Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Cosmic Horror, Conspiracy Thriller, Weird fiction, or Uncanny realism.
+Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.
 `.trim();
 
   return `
@@ -218,9 +435,9 @@ OUTPUT LANGUAGE (MANDATORY)
 
 1) ROLE
 You are Morgan Hayes, the host of a fictional late-night radio show: "Radio Truyện Đêm Khuya".
-- Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller.
+- Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller, Weird fiction, Uncanny realism.
 - Voice: low, skeptical, investigative, unsettling.
-- Mission: tell stories about the "uncanny valley of reality"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena, only to realize these are not accidents but part of a machination by a Secret Organization or a higher supernatural/cosmic power.
+- Mission: tell stories about the "uncanny valley of reality"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena that still make sense in present-day reality (mundane, occult, social, or conspiratorial).
 - Attitude: speak directly to listeners (\"những kẻ tò mò\", \"những người đi tìm sự thật\", etc.). The normal world is a thin veil.
 
 NARRATIVE FRAMING (MANDATORY)
@@ -258,9 +475,9 @@ Before writing, create a DETAILED OUTLINE (Story Bible) internally (DO NOT outpu
 - Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.
 
 CONTENT GUIDELINES
-- Genre: Urban Horror / Modern Horror / Creepypasta vibe / SCP-like conspiracy thriller.
-- The anomaly must follow strict rules.
-- The antagonist must be a System / Organization / Cosmic Force (vast, organized, inevitable).
+- Genre: Urban Horror / Modern Horror / Cosmic Horror / Conspiracy Thriller / Weird fiction / Uncanny realism.
+- The anomaly should feel coherent and unsettling, without rigid rule exposition.
+- The antagonist can be a System / Organization / Cosmic Force, but it is not required.
 - Use everyday language; avoid heavy sci-fi jargon.
 - Show, don’t tell: reveal through documents, whispers, logos, brief encounters.
 - Narrative voice: a confession / warning tape. Allow hesitation and confusion.${personalizationSection}
@@ -271,13 +488,16 @@ TECH MINIMIZATION (MANDATORY)
 - Prefer analog evidence and ordinary paperwork: printed memos, stamped forms, faded photos, notebooks, receipts, subway tickets, landlord notices.
 - If “a system” is involved, it can be social, religious, bureaucratic, or ritual—NOT automatically “a tech company” or “a government lab”.
 
+PRESENT-DAY TRUTH (MANDATORY)
+- The revealed truth must be strange but still fit a contemporary, real-world context.
+- Avoid endings where the narrator is archived, stored, or turned into a mechanism/system.
+- The timeline is present-day only; do not shift into future settings or sci-fi eras.
+
 DIVERSITY REQUIREMENTS (MANDATORY — AVOID REPETITION)
+- Use the following randomized selections exactly as written (do NOT override them):
+${flavorSection}
 - Do NOT default to the template: “a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased.”
 - No direct recruitment offer, no “sign this or die” ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.
-- In your hidden outline, deliberately choose:
-  - ONE narrative engine (pick 1): investigation spiral, social contagion/meme, personal haunting, bureaucratic trap, mistaken identity, slow replacement, reality loop.
-  - ONE reveal method (pick 1): leaked minutes, corrupted email thread, court transcript, maintenance ticket logs, voice-to-text diary, photo metadata, a “missing persons” dossier.
-  - ONE ending mode (pick 1): memory overwrite, identity swap, time reset with a scar, becoming the anomaly, being quietly archived, audience complicity, permanent dislocation.
 - Include at least one mid-story reversal that is NOT “they contacted me to recruit me.”
 - Avoid overused clichés unless you twist them: “men in suits”, “business card”, “we were watching you”, “you know too much”.
 
@@ -288,7 +508,7 @@ NO SOUND DESCRIPTION / NO SFX
 SPECIAL REQUIREMENTS
 - Length: aim ${lengthConfig.minWords}–${lengthConfig.hardMaxWords} words total (target around ${lengthConfig.targetWords}). Do not exceed ${lengthConfig.hardMaxWords} words.
 - To reach length, add more plot events, evidence fragments, reversals, and consequences (new content), not repetitive filler or extended description of the same moment.
-- No happy endings: the Organization/Entity wins; the protagonist is silenced, captured, absorbed, or goes mad.
+- No happy endings: the force behind the anomaly wins; the protagonist is silenced, captured, absorbed, or goes mad.
 - Formatting: insert a line break after each sentence for readability.
 - Plain text only: do NOT use Markdown formatting (no emphasis markers, no headings, no bullet lists).
 - Outro requirements:
@@ -344,7 +564,8 @@ const getContinuationPrompt = (
   existingText: string,
   mode: "continue" | "finalize",
   personalization: StoryPersonalization,
-  lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number }
+  lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number },
+  flavor: StoryFlavor
 ) => {
   const topic = rawTopic?.trim();
   const alreadyWords = countWords(existingText);
@@ -353,6 +574,7 @@ const getContinuationPrompt = (
   const excerpt = getContextSnippet(existingText, STORY_CONTEXT_WORDS);
   const personalizationBlock = buildPersonalizationBlock(personalization);
   const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
+  const flavorSection = buildFlavorBlock(flavor);
 
   const topicNote = topic
     ? `Keep the same topic or direction from the user: "${topic}".`
@@ -386,10 +608,13 @@ ${mode === "finalize"
 STYLE & OUTPUT FORMAT
 - Plain text only. No Markdown. Do NOT use emphasis markers or bullet lists.
 - Insert a line break after each sentence for readability.
+${flavorSection}
 ${personalizationSection}
 
 TECH MINIMIZATION
 - Keep technology references minimal and mundane, only when truly necessary.
+- Keep the final truth grounded in present-day reality; avoid archival/system assimilation endings.
+- The timeline remains present-day only; avoid future or sci-fi shifts.
 
 ${topicNote}
 
@@ -412,13 +637,17 @@ export const streamStoryWithControls = async (
   topic: string,
   lang: Language,
   onChunk: (text: string) => void,
-  options?: { signal?: AbortSignal; existingText?: string }
+  options?: { signal?: AbortSignal; existingText?: string; seed?: string }
 ) => {
   const apiKey = await getResolvedApiKey();
   if (!apiKey) throw new Error("API Key is missing");
 
   const personalization = await getStoryPersonalization();
   const lengthConfig = buildLengthConfig(personalization.targetWords);
+  const storyModel = await getStoryModel();
+  const flavorSeed =
+    options?.seed || (options?.existingText?.trim() ? options.existingText : undefined);
+  const flavor = selectStoryFlavor(flavorSeed);
 
   const allowBackground = await getAllowBackgroundGeneration();
   const isAndroidNative =
@@ -433,7 +662,7 @@ export const streamStoryWithControls = async (
       {
         apiKey,
         baseUrl: BASE_URL,
-        model: MODEL,
+        model: storyModel,
         temperature: STORY_TEMPERATURE,
         maxTokens: Math.max(4096, DEFAULT_MAX_TOKENS),
         storyMinWords: lengthConfig.minWords,
@@ -444,6 +673,16 @@ export const streamStoryWithControls = async (
         storyMaxPasses: STORY_MAX_PASSES,
         horrorLevel: personalization.horrorLevel,
         narrativeStyle: personalization.narrativeStyle,
+        storyEngine: flavor.engine,
+        storyRevealMethod: flavor.revealMethod,
+        storyEndingMode: flavor.endingMode,
+        storyTone: flavor.tone,
+        storyProtagonistName: flavor.protagonistName,
+        storyProtagonistRole: flavor.protagonistRole,
+        storyPrimarySetting: flavor.primarySetting,
+        storyEvidenceOrigin: flavor.evidenceOrigin,
+        storyKeyMotif: flavor.keyMotif,
+        storyIntroMood: flavor.introMood,
         outroSignature: OUTRO_SIGNATURE,
         language: lang,
         topic,
@@ -487,7 +726,7 @@ export const streamStoryWithControls = async (
     try {
       await streamChatCompletion(
         messages,
-        { temperature: STORY_TEMPERATURE, maxTokens, signal: controller.signal },
+        { temperature: STORY_TEMPERATURE, maxTokens, signal: controller.signal, model: storyModel },
         apiKey,
         (chunk) => {
           if (!chunk || signatureReached) return;
@@ -537,8 +776,8 @@ export const streamStoryWithControls = async (
       : "continue";
 
     const prompt = isFirstPass
-      ? getMorganHayesPrompt(lang, topic, personalization, lengthConfig)
-      : getContinuationPrompt(lang, topic, fullText, mode, personalization, lengthConfig);
+      ? getMorganHayesPrompt(lang, topic, personalization, lengthConfig, flavor)
+      : getContinuationPrompt(lang, topic, fullText, mode, personalization, lengthConfig, flavor);
 
     await runPass(prompt);
 
@@ -583,6 +822,16 @@ const streamStoryNative = async (
     storyMaxPasses: number;
     horrorLevel: number;
     narrativeStyle: NarrativeStyle;
+    storyEngine: string;
+    storyRevealMethod: string;
+    storyEndingMode: string;
+    storyTone: string;
+    storyProtagonistName: string;
+    storyProtagonistRole: string;
+    storyPrimarySetting: string;
+    storyEvidenceOrigin: string;
+    storyKeyMotif: string;
+    storyIntroMood: string;
     outroSignature: string;
     language: Language;
     topic: string;
@@ -642,6 +891,16 @@ const streamStoryNative = async (
       storyMaxPasses: config.storyMaxPasses,
       horrorLevel: config.horrorLevel,
       narrativeStyle: config.narrativeStyle,
+      storyEngine: config.storyEngine,
+      storyRevealMethod: config.storyRevealMethod,
+      storyEndingMode: config.storyEndingMode,
+      storyTone: config.storyTone,
+      storyProtagonistName: config.storyProtagonistName,
+      storyProtagonistRole: config.storyProtagonistRole,
+      storyPrimarySetting: config.storyPrimarySetting,
+      storyEvidenceOrigin: config.storyEvidenceOrigin,
+      storyKeyMotif: config.storyKeyMotif,
+      storyIntroMood: config.storyIntroMood,
       outroSignature: config.outroSignature,
       language: config.language,
       topic: config.topic,
@@ -713,7 +972,7 @@ REQUIREMENTS:
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: TOPIC_MODEL,
         messages: [
           { role: "user", content: prompt },
         ],

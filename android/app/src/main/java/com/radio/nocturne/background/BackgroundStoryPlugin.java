@@ -121,6 +121,16 @@ public class BackgroundStoryPlugin extends Plugin implements BackgroundStoryServ
         config.storyMaxPasses = call.getInt("storyMaxPasses", 6);
         config.horrorLevel = call.getInt("horrorLevel", 50);
         config.narrativeStyle = call.getString("narrativeStyle", "default");
+        config.storyEngine = call.getString("storyEngine", "");
+        config.storyRevealMethod = call.getString("storyRevealMethod", "");
+        config.storyEndingMode = call.getString("storyEndingMode", "");
+        config.storyTone = call.getString("storyTone", "");
+        config.storyProtagonistName = call.getString("storyProtagonistName", "");
+        config.storyProtagonistRole = call.getString("storyProtagonistRole", "");
+        config.storyPrimarySetting = call.getString("storyPrimarySetting", "");
+        config.storyEvidenceOrigin = call.getString("storyEvidenceOrigin", "");
+        config.storyKeyMotif = call.getString("storyKeyMotif", "");
+        config.storyIntroMood = call.getString("storyIntroMood", "");
         config.outroSignature = call.getString("outroSignature", "");
         config.language = call.getString("language", "vi");
         config.topic = call.getString("topic", "");

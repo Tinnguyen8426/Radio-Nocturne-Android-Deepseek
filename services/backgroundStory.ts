@@ -16,6 +16,16 @@ export interface BackgroundStoryPlugin {
     storyMaxPasses: number;
     horrorLevel: number;
     narrativeStyle: string;
+    storyEngine?: string;
+    storyRevealMethod?: string;
+    storyEndingMode?: string;
+    storyTone?: string;
+    storyProtagonistName?: string;
+    storyProtagonistRole?: string;
+    storyPrimarySetting?: string;
+    storyEvidenceOrigin?: string;
+    storyKeyMotif?: string;
+    storyIntroMood?: string;
     outroSignature: string;
     language: string;
     topic: string;

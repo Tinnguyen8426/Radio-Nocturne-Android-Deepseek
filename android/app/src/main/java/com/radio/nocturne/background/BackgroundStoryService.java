@@ -101,6 +101,7 @@ public class BackgroundStoryService extends Service {
     public void startGeneration(GenerationConfig config) {
         cancel();
         cancelled.set(false);
+        ensureFlavor(config);
         running = true;
         startForeground(NOTIFICATION_ID, buildNotification("Đang tạo truyện..."));
         acquireWakeLock();
@@ -445,6 +446,188 @@ public class BackgroundStoryService extends Service {
         }
     }
 
+    private static final String[] FLAVOR_ENGINES = new String[] {
+        "investigation spiral",
+        "social contagion/meme",
+        "personal haunting",
+        "bureaucratic trap",
+        "mistaken identity",
+        "slow replacement",
+        "reality loop",
+        "collective delusion",
+        "ritual obligation"
+    };
+
+    private static final String[] FLAVOR_REVEALS = new String[] {
+        "leaked minutes",
+        "corrupted email thread",
+        "court transcript",
+        "maintenance ticket logs",
+        "voice-to-text diary",
+        "photo metadata",
+        "missing persons dossier",
+        "old receipts and stamps trail",
+        "handwritten marginalia"
+    };
+
+    private static final String[] FLAVOR_ENDINGS = new String[] {
+        "memory overwrite",
+        "identity swap",
+        "time reset with a scar",
+        "coerced silence",
+        "ritual erasure",
+        "audience complicity",
+        "permanent dislocation",
+        "social disappearance"
+    };
+
+    private static final String[] FLAVOR_TONES = new String[] {
+        "bleak noir",
+        "paranoid and intimate",
+        "clinical and cold",
+        "elegiac",
+        "dry and matter-of-fact",
+        "fever-dream dread"
+    };
+
+    private static final String[] FLAVOR_PROTAGONIST_NAMES = new String[] {
+        "Evelyn Ward",
+        "Jonah Price",
+        "Mara Linden",
+        "Theo Alvarez",
+        "Nadia Petrov",
+        "Arjun Rao",
+        "Iris Ko",
+        "Maya Bishop",
+        "Caleb Hart",
+        "Lena Voss",
+        "Owen Reyes",
+        "Sora Kaito",
+        "Nico Laurent",
+        "Daria Novak",
+        "Amir Haddad",
+        "Lea Fischer",
+        "Rui Tan",
+        "Eva Morland",
+        "Silas Quinn",
+        "Noah Mercer"
+    };
+
+    private static final String[] FLAVOR_PROTAGONIST_ROLES = new String[] {
+        "night-shift security guard",
+        "ride-share driver",
+        "apartment manager",
+        "ER nurse",
+        "delivery rider",
+        "library archivist",
+        "subway technician",
+        "court clerk",
+        "mortuary assistant",
+        "radio repair tech",
+        "paralegal",
+        "school counselor",
+        "warehouse picker",
+        "building inspector",
+        "call center agent",
+        "photo lab worker"
+    };
+
+    private static final String[] FLAVOR_SETTINGS = new String[] {
+        "a mid-rise apartment block",
+        "a suburban strip mall",
+        "a municipal service center",
+        "a night bus route",
+        "a hospital wing",
+        "a riverside neighborhood",
+        "an old market",
+        "a commuter station",
+        "a rooftop water tank",
+        "a storage facility",
+        "a co-working office",
+        "a public housing tower"
+    };
+
+    private static final String[] FLAVOR_EVIDENCE_ORIGINS = new String[] {
+        "a sealed envelope slid under the studio door",
+        "a memory card mailed with no return address",
+        "a voicemail sent from a number that no longer exists",
+        "a torn notebook left on the studio steps",
+        "a bundle of photocopies from a municipal office",
+        "a taxi receipt with handwritten notes",
+        "a flash drive found in the station mailbox",
+        "a burned CD recovered from a thrift store"
+    };
+
+    private static final String[] FLAVOR_MOTIFS = new String[] {
+        "a missing door",
+        "a repeated address",
+        "a symbol drawn in chalk",
+        "a list of names",
+        "a flickering streetlight pattern",
+        "a receipt stamp",
+        "a familiar scent",
+        "a wrong date",
+        "a locked room",
+        "a red thread"
+    };
+
+    private static final String[] FLAVOR_INTRO_MOODS = new String[] {
+        "a humid night with power flickers",
+        "thin rain against the window",
+        "a quiet city after the last train",
+        "wind scraping the rooftop antenna",
+        "a sleepless neon glow",
+        "a cold night with empty streets"
+    };
+
+    private static String pickRandom(String[] items) {
+        if (items == null || items.length == 0) return "";
+        int idx = (int) (Math.random() * items.length);
+        if (idx < 0 || idx >= items.length) idx = 0;
+        return items[idx];
+    }
+
+    private static String normalizeFlavor(String value, String fallback) {
+        if (value == null) return fallback;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? fallback : trimmed;
+    }
+
+    private static void ensureFlavor(GenerationConfig config) {
+        if (config == null) return;
+        config.storyEngine = normalizeFlavor(config.storyEngine, pickRandom(FLAVOR_ENGINES));
+        config.storyRevealMethod = normalizeFlavor(config.storyRevealMethod, pickRandom(FLAVOR_REVEALS));
+        config.storyEndingMode = normalizeFlavor(config.storyEndingMode, pickRandom(FLAVOR_ENDINGS));
+        config.storyTone = normalizeFlavor(config.storyTone, pickRandom(FLAVOR_TONES));
+        config.storyProtagonistName =
+            normalizeFlavor(config.storyProtagonistName, pickRandom(FLAVOR_PROTAGONIST_NAMES));
+        config.storyProtagonistRole =
+            normalizeFlavor(config.storyProtagonistRole, pickRandom(FLAVOR_PROTAGONIST_ROLES));
+        config.storyPrimarySetting =
+            normalizeFlavor(config.storyPrimarySetting, pickRandom(FLAVOR_SETTINGS));
+        config.storyEvidenceOrigin =
+            normalizeFlavor(config.storyEvidenceOrigin, pickRandom(FLAVOR_EVIDENCE_ORIGINS));
+        config.storyKeyMotif = normalizeFlavor(config.storyKeyMotif, pickRandom(FLAVOR_MOTIFS));
+        config.storyIntroMood = normalizeFlavor(config.storyIntroMood, pickRandom(FLAVOR_INTRO_MOODS));
+    }
+
+    private static String buildFlavorBlock(GenerationConfig config) {
+        if (config == null) return "";
+        return (
+            "VARIATION ANCHOR (MANDATORY)\n" +
+            "- Narrative engine: " + config.storyEngine + "\n" +
+            "- Reveal method: " + config.storyRevealMethod + "\n" +
+            "- Ending mode: " + config.storyEndingMode + "\n" +
+            "- Tone bias: " + config.storyTone + "\n" +
+            "- Protagonist name: " + config.storyProtagonistName + "\n" +
+            "- Protagonist role: " + config.storyProtagonistRole + "\n" +
+            "- Primary setting: " + config.storyPrimarySetting + "\n" +
+            "- Evidence origin: " + config.storyEvidenceOrigin + "\n" +
+            "- Key motif: " + config.storyKeyMotif + "\n" +
+            "- Intro mood: " + config.storyIntroMood
+        ).trim();
+    }
+
     private static String buildPersonalizationBlock(GenerationConfig config) {
         if (config == null) return "";
         StringBuilder builder = new StringBuilder();
@@ -469,12 +652,13 @@ public class BackgroundStoryService extends Service {
                 "- Treat this as either a core theme, a premise, or a steering constraint.").trim();
         } else {
             topicDirective = ("NO SPECIFIC TOPIC OR DIRECTION PROVIDED.\n" +
-                "Choose a premise that matches: Modern Noir + Urban Horror + Cosmic Horror + Conspiracy Thriller.\n" +
-                "Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane) that is not accidental, but part of a machination by a Secret Organization or a higher cosmic/supernatural power.").trim();
+                "Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Cosmic Horror, Conspiracy Thriller, Weird fiction, or Uncanny realism.\n" +
+                "Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.").trim();
         }
 
         String personalizationBlock = buildPersonalizationBlock(config);
         String personalizationSection = personalizationBlock.isEmpty() ? "" : "\n\n" + personalizationBlock;
+        String flavorSection = buildFlavorBlock(config);
 
         return (
             "THE MORGAN HAYES PROTOCOL (REVISED: MODERN CONSPIRACY & SUPERNATURAL)\n\n" +
@@ -487,9 +671,9 @@ public class BackgroundStoryService extends Service {
             "- Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.\n\n" +
             "1) ROLE\n" +
             "You are Morgan Hayes, the host of a fictional late-night radio show: \"Radio Truyện Đêm Khuya\".\n" +
-            "- Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller.\n" +
+            "- Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller, Weird fiction, Uncanny realism.\n" +
             "- Voice: low, skeptical, investigative, unsettling.\n" +
-            "- Mission: tell stories about the \"uncanny valley of reality\"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena, only to realize these are not accidents but part of a machination by a Secret Organization or a higher supernatural/cosmic power.\n" +
+            "- Mission: tell stories about the \"uncanny valley of reality\"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena that still make sense in present-day reality (mundane, occult, social, or conspiratorial).\n" +
             "- Attitude: speak directly to listeners (\"những kẻ tò mò\", \"những người đi tìm sự thật\", etc.). The normal world is a thin veil.\n\n" +
             "NARRATIVE FRAMING (MANDATORY)\n" +
             "Every story must be framed as \"received evidence\" or a \"submission\".\n" +
@@ -519,9 +703,9 @@ public class BackgroundStoryService extends Service {
             "- Do NOT split into parts/chapters in the output (no “Phần”, no “Chương”, no “Part” headings).\n" +
             "- Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.\n\n" +
             "CONTENT GUIDELINES\n" +
-            "- Genre: Urban Horror / Modern Horror / Creepypasta vibe / SCP-like conspiracy thriller.\n" +
-            "- The anomaly must follow strict rules.\n" +
-            "- The antagonist must be a System / Organization / Cosmic Force (vast, organized, inevitable).\n" +
+            "- Genre: Urban Horror / Modern Horror / Cosmic Horror / Conspiracy Thriller / Weird fiction / Uncanny realism.\n" +
+            "- The anomaly should feel coherent and unsettling, without rigid rule exposition.\n" +
+            "- The antagonist can be a System / Organization / Cosmic Force, but it is not required.\n" +
             "- Use everyday language; avoid heavy sci-fi jargon.\n" +
             "- Show, don’t tell: reveal through documents, whispers, logos, brief encounters.\n" +
             "- Narrative voice: a confession / warning tape. Allow hesitation and confusion." +
@@ -531,13 +715,15 @@ public class BackgroundStoryService extends Service {
             "- Do NOT center the plot on AI, apps, VR, implants, laboratories, “simulation glitches”, or futuristic devices.\n" +
             "- Prefer analog evidence and ordinary paperwork: printed memos, stamped forms, faded photos, notebooks, receipts, subway tickets, landlord notices.\n" +
             "- If “a system” is involved, it can be social, religious, bureaucratic, or ritual—NOT automatically “a tech company” or “a government lab”.\n\n" +
+            "PRESENT-DAY TRUTH (MANDATORY)\n" +
+            "- The revealed truth must be strange but still fit a contemporary, real-world context.\n" +
+            "- Avoid endings where the narrator is archived, stored, or turned into a mechanism/system.\n" +
+            "- The timeline is present-day only; do not shift into future settings or sci-fi eras.\n\n" +
             "DIVERSITY REQUIREMENTS (MANDATORY — AVOID REPETITION)\n" +
+            "- Use the following randomized selections exactly as written (do NOT override them):\n" +
+            flavorSection + "\n" +
             "- Do NOT default to the template: “a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased.”\n" +
             "- No direct recruitment offer, no “sign this or die” ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.\n" +
-            "- In your hidden outline, deliberately choose:\n" +
-            "  - ONE narrative engine (pick 1): investigation spiral, social contagion/meme, personal haunting, bureaucratic trap, mistaken identity, slow replacement, reality loop.\n" +
-            "  - ONE reveal method (pick 1): leaked minutes, corrupted email thread, court transcript, maintenance ticket logs, voice-to-text diary, photo metadata, a “missing persons” dossier.\n" +
-            "  - ONE ending mode (pick 1): memory overwrite, identity swap, time reset with a scar, becoming the anomaly, being quietly archived, audience complicity, permanent dislocation.\n" +
             "- Include at least one mid-story reversal that is NOT “they contacted me to recruit me.”\n" +
             "- Avoid overused clichés unless you twist them: “men in suits”, “business card”, “we were watching you”, “you know too much”.\n\n" +
             "NO SOUND DESCRIPTION / NO SFX\n" +
@@ -546,7 +732,7 @@ public class BackgroundStoryService extends Service {
             "SPECIAL REQUIREMENTS\n" +
             "- Length: aim " + config.storyMinWords + "–" + config.storyHardMaxWords + " words total (target around " + config.storyTargetWords + "). Do not exceed " + config.storyHardMaxWords + " words.\n" +
             "- To reach length, add more plot events, evidence fragments, reversals, and consequences (new content), not repetitive filler or extended description of the same moment.\n" +
-            "- No happy endings: the Organization/Entity wins; the protagonist is silenced, captured, absorbed, or goes mad.\n" +
+            "- No happy endings: the force behind the anomaly wins; the protagonist is silenced, captured, absorbed, or goes mad.\n" +
             "- Formatting: insert a line break after each sentence for readability.\n" +
             "- Plain text only: do NOT use Markdown formatting (no emphasis markers, no headings, no bullet lists).\n" +
             "- Outro requirements:\n" +
@@ -566,6 +752,7 @@ public class BackgroundStoryService extends Service {
         String excerpt = getContextSnippet(existingText, config.storyContextWords);
         String personalizationBlock = buildPersonalizationBlock(config);
         String personalizationSection = personalizationBlock.isEmpty() ? "" : "\n\n" + personalizationBlock;
+        String flavorSection = buildFlavorBlock(config);
 
         String topicNote = !topic.isEmpty()
             ? "Keep the same topic or direction from the user: \"" + topic + "\"."
@@ -602,10 +789,12 @@ public class BackgroundStoryService extends Service {
             modeLine + "\n\n" +
             "STYLE & OUTPUT FORMAT\n" +
             "- Plain text only. No Markdown. Do NOT use emphasis markers or bullet lists.\n" +
-            "- Insert a line break after each sentence for readability." +
+            "- Insert a line break after each sentence for readability.\n" +
+            flavorSection +
             personalizationSection + "\n\n" +
             "TECH MINIMIZATION\n" +
-            "- Keep technology references minimal and mundane, only when truly necessary.\n\n" +
+            "- Keep technology references minimal and mundane, only when truly necessary.\n" +
+            "- Keep the final truth grounded in present-day reality; avoid archival/system assimilation endings.\n\n" +
             topicNote + "\n\n" +
             "EXCERPT (FOR CONTEXT ONLY — DO NOT REPEAT):\n" +
             "\"" + excerpt + "\"\n\n" +
@@ -627,6 +816,16 @@ public class BackgroundStoryService extends Service {
         public int storyMaxPasses;
         public int horrorLevel;
         public String narrativeStyle;
+        public String storyEngine;
+        public String storyRevealMethod;
+        public String storyEndingMode;
+        public String storyTone;
+        public String storyProtagonistName;
+        public String storyProtagonistRole;
+        public String storyPrimarySetting;
+        public String storyEvidenceOrigin;
+        public String storyKeyMotif;
+        public String storyIntroMood;
         public String outroSignature;
         public String language;
         public String topic;

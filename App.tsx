@@ -25,14 +25,18 @@ import {
   DEFAULT_STORY_PERSONALIZATION,
   getAllowBackgroundGeneration,
   getStoryPersonalization,
+  getStoryModel,
   TARGET_MAX_OFFSET,
   TARGET_MAX_WORDS,
   TARGET_MIN_OFFSET,
   TARGET_MIN_WORDS,
   setAllowBackgroundGeneration,
+  getReuseStoryCache,
   setStoryPersonalization,
+  setReuseStoryCache,
+  setStoryModel,
 } from './services/settingsStore';
-import type { NarrativeStyle, StoryPersonalization } from './services/settingsStore';
+import type { NarrativeStyle, StoryModel, StoryPersonalization } from './services/settingsStore';
 
 // UI Translation Dictionary
 const TRANSLATIONS = {
@@ -65,6 +69,12 @@ const TRANSLATIONS = {
     backgroundLabel: "Cho phép tạo truyện nền",
     backgroundHint: "Bật để app tiếp tục tạo truyện khi bạn chuyển sang ứng dụng khác.",
     backgroundUnavailable: "Thiết bị chưa hỗ trợ chạy nền.",
+    reuseCacheLabel: "Dùng lại cache",
+    reuseCacheHint: "Tái sử dụng truyện đã tạo để tiết kiệm lượt gọi API.",
+    storyModelLabel: "Model tạo truyện",
+    storyModelHint: "Chọn model dùng cho phần tạo truyện.",
+    storyModelReasoner: "deepseek-reasoner (logic, chặt chẽ)",
+    storyModelChat: "deepseek-chat (linh hoạt, giàu cảm xúc)",
     backgroundGenerating: "Đang tạo truyện...",
     personalizationTitle: "Cá nhân hóa nội dung",
     personalizationHint: "Tùy chỉnh mức rùng rợn, phong cách kể và độ dài mục tiêu.",
@@ -115,6 +125,12 @@ const TRANSLATIONS = {
     backgroundLabel: "Allow background generation",
     backgroundHint: "Keep generating stories while you switch to other apps.",
     backgroundUnavailable: "Background mode is unavailable.",
+    reuseCacheLabel: "Reuse cache",
+    reuseCacheHint: "Reuse previously generated stories to save API calls.",
+    storyModelLabel: "Story model",
+    storyModelHint: "Choose the model used for story generation.",
+    storyModelReasoner: "deepseek-reasoner (structured)",
+    storyModelChat: "deepseek-chat (expressive)",
     backgroundGenerating: "Generating story...",
     personalizationTitle: "Story Personalization",
     personalizationHint: "Tune intensity, narrative style, and target length.",
@@ -192,6 +208,7 @@ const App: React.FC = () => {
   const generationIdRef = useRef(0);
   const lastTopicRef = useRef('');
   const lastUsingAutoTopicRef = useRef(false);
+  const generationSeedRef = useRef('');
   const [stories, setStories] = useState<StoryRecord[]>([]);
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -199,6 +216,8 @@ const App: React.FC = () => {
   const lastSavedKeyRef = useRef('');
   const [allowBackground, setAllowBackground] = useState(true);
   const [backgroundSupported, setBackgroundSupported] = useState(false);
+  const [reuseCache, setReuseCache] = useState(false);
+  const [storyModel, setStoryModelState] = useState<StoryModel>('deepseek-reasoner');
   const [personalization, setPersonalization] = useState<StoryPersonalization>(
     DEFAULT_STORY_PERSONALIZATION
   );
@@ -247,16 +266,27 @@ const App: React.FC = () => {
     const load = async () => {
       try {
         await initStoryStore();
-        const [storedStories, storedKey, backgroundAllowed, storedPersonalization] = await Promise.all([
+        const [
+          storedStories,
+          storedKey,
+          backgroundAllowed,
+          storedPersonalization,
+          storedReuseCache,
+          storedStoryModel,
+        ] = await Promise.all([
           listStories(),
           getStoredApiKey(),
           getAllowBackgroundGeneration(),
           getStoryPersonalization(),
+          getReuseStoryCache(),
+          getStoryModel(),
         ]);
         if (!alive) return;
         setStories(storedStories);
         setAllowBackground(backgroundAllowed);
         setPersonalization(storedPersonalization);
+        setReuseCache(storedReuseCache);
+        setStoryModelState(storedStoryModel);
         if (storedKey) {
           setApiKeyInput(storedKey);
           setApiKeyStatus('stored');
@@ -311,8 +341,12 @@ const App: React.FC = () => {
     const trimmedTopic = topicInput.trim();
     const usingAutoTopic = trimmedTopic.length === 0;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
-    const personalizationKey = `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}`;
-    const cacheKey = usingAutoTopic ? null : `${language}:${trimmedTopic}:${personalizationKey}`;
+    const personalizationKey =
+      `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}:${storyModel}`;
+    const generationSeed = `${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`;
+    generationSeedRef.current = generationSeed;
+    const allowCache = reuseCache && !usingAutoTopic;
+    const cacheKey = allowCache ? `${language}:${trimmedTopic}:${personalizationKey}` : null;
     lastTopicRef.current = trimmedTopic;
     lastUsingAutoTopicRef.current = usingAutoTopic;
 
@@ -349,7 +383,7 @@ const App: React.FC = () => {
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
-        { signal: controller.signal }
+        { signal: controller.signal, seed: generationSeed }
       );
 
       fullText = normalizeOutroSignature(fullText);
@@ -396,8 +430,14 @@ const App: React.FC = () => {
     const trimmedTopic = lastTopicRef.current;
     const usingAutoTopic = lastUsingAutoTopicRef.current;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
-    const personalizationKey = `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}`;
-    const cacheKey = usingAutoTopic ? null : `${language}:${trimmedTopic}:${personalizationKey}`;
+    const personalizationKey =
+      `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}:${storyModel}`;
+    const generationSeed =
+      generationSeedRef.current ||
+      `${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`;
+    generationSeedRef.current = generationSeed;
+    const allowCache = reuseCache && !usingAutoTopic;
+    const cacheKey = allowCache ? `${language}:${trimmedTopic}:${personalizationKey}` : null;
     const requestId = ++generationIdRef.current;
     const controller = new AbortController();
     generationControllerRef.current = controller;
@@ -421,7 +461,7 @@ const App: React.FC = () => {
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
-        { signal: controller.signal, existingText: initialText }
+        { signal: controller.signal, existingText: initialText, seed: generationSeed }
       );
 
       fullText = normalizeOutroSignature(fullText);
@@ -558,6 +598,27 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to update background setting:", error);
+    }
+  };
+
+  const handleToggleReuseCache = async () => {
+    const next = !reuseCache;
+    setReuseCache(next);
+    storyCacheRef.current.clear();
+    try {
+      await setReuseStoryCache(next);
+    } catch (error) {
+      console.error("Failed to update cache setting:", error);
+    }
+  };
+
+  const handleStoryModelChange = async (next: StoryModel) => {
+    setStoryModelState(next);
+    storyCacheRef.current.clear();
+    try {
+      await setStoryModel(next);
+    } catch (error) {
+      console.error("Failed to update story model:", error);
     }
   };
 
@@ -760,6 +821,39 @@ const App: React.FC = () => {
                     }`}
                   />
                 </button>
+              </div>
+              <div className="flex items-start justify-between gap-4 mt-5 pt-5 border-t border-zinc-800">
+                <div>
+                  <p className="text-sm text-zinc-200">{t.reuseCacheLabel}</p>
+                  <p className="text-xs text-zinc-500 mt-1">{t.reuseCacheHint}</p>
+                </div>
+                <button
+                  onClick={handleToggleReuseCache}
+                  className={`relative w-16 h-9 rounded-full border transition shrink-0 ${
+                    reuseCache ? 'bg-red-700 border-red-600' : 'bg-zinc-800 border-zinc-700'
+                  }`}
+                  aria-pressed={reuseCache}
+                >
+                  <span
+                    className={`absolute top-1 left-1 h-7 w-7 rounded-full bg-zinc-100 shadow-md transition-transform ${
+                      reuseCache ? 'translate-x-7' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+              <div className="mt-5 pt-5 border-t border-zinc-800">
+                <label className="flex flex-col gap-2 text-zinc-400">
+                  <span className="text-sm text-zinc-200">{t.storyModelLabel}</span>
+                  <select
+                    value={storyModel}
+                    onChange={(e) => handleStoryModelChange(e.target.value as StoryModel)}
+                    className="w-full bg-zinc-950 border border-zinc-700 text-zinc-100 p-2 rounded-md focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-900 transition-all font-mono text-sm"
+                  >
+                    <option value="deepseek-reasoner">{t.storyModelReasoner}</option>
+                    <option value="deepseek-chat">{t.storyModelChat}</option>
+                  </select>
+                  <span className="text-xs text-zinc-500">{t.storyModelHint}</span>
+                </label>
               </div>
             </div>
 
