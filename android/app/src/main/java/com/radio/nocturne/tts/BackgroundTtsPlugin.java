@@ -32,7 +32,18 @@ public class BackgroundTtsPlugin extends Plugin implements BackgroundTtsService.
     private final List<PluginCall> pendingReadyCalls = new ArrayList<>();
     private String lastStartError;
 
-    private record PendingSpeak(String text, String utteranceId, float rate, float pitch, String language, String title, PluginCall call) {}
+    private record PendingSpeak(
+        String text,
+        String utteranceId,
+        float rate,
+        float pitch,
+        String language,
+        String title,
+        Integer startOffset,
+        boolean continuous,
+        String sessionId,
+        PluginCall call
+    ) {}
 
     private final ServiceConnection connection =
         new ServiceConnection() {
@@ -148,6 +159,9 @@ public class BackgroundTtsPlugin extends Plugin implements BackgroundTtsService.
         String utteranceId = call.getString("utteranceId", "");
         String language = call.getString("language", "vi-VN");
         String title = call.getString("title", "Radio Nocturne");
+        boolean continuous = Boolean.TRUE.equals(call.getBoolean("continuous", false));
+        Integer startOffset = call.getInt("startOffset");
+        String sessionId = call.getString("sessionId", utteranceId);
         Double rateValue = call.getDouble("rate", 1.0);
         Double pitchValue = call.getDouble("pitch", 1.0);
         float rate = rateValue != null ? rateValue.floatValue() : 1.0f;
@@ -158,7 +172,8 @@ public class BackgroundTtsPlugin extends Plugin implements BackgroundTtsService.
             return;
         }
 
-        PendingSpeak pending = new PendingSpeak(text, utteranceId, rate, pitch, language, title, call);
+        PendingSpeak pending =
+            new PendingSpeak(text, utteranceId, rate, pitch, language, title, startOffset, continuous, sessionId, call);
         if (!bound || service == null) {
             pendingSpeak = pending;
             if (!ensureService()) {
@@ -253,14 +268,28 @@ public class BackgroundTtsPlugin extends Plugin implements BackgroundTtsService.
             return;
         }
         try {
-            service.speak(
-                pending.text(),
-                pending.utteranceId(),
-                pending.rate(),
-                pending.pitch(),
-                pending.language(),
-                pending.title()
-            );
+            if (pending.continuous()) {
+                int offset = pending.startOffset() != null ? pending.startOffset() : 0;
+                service.speakContinuous(
+                    pending.text(),
+                    offset,
+                    pending.rate(),
+                    pending.pitch(),
+                    pending.language(),
+                    pending.title(),
+                    pending.sessionId()
+                );
+            } else {
+                service.speak(
+                    pending.text(),
+                    pending.utteranceId(),
+                    pending.rate(),
+                    pending.pitch(),
+                    pending.language(),
+                    pending.title(),
+                    pending.sessionId()
+                );
+            }
             pending.call.resolve();
         } catch (Exception e) {
             Log.e(TAG, "Failed to speak", e);
@@ -269,34 +298,41 @@ public class BackgroundTtsPlugin extends Plugin implements BackgroundTtsService.
     }
 
     @Override
-    public void onStart(String utteranceId) {
+    public void onStart(String utteranceId, String sessionId) {
         JSObject data = new JSObject();
         data.put("utteranceId", utteranceId);
+        data.put("sessionId", sessionId);
         notifyListeners("ttsStart", data);
     }
 
     @Override
-    public void onRangeStart(String utteranceId, int start, int end) {
+    public void onRangeStart(String utteranceId, int start, int end, int absoluteStart, String sessionId) {
         JSObject data = new JSObject();
         data.put("utteranceId", utteranceId);
         data.put("charIndex", start);
         data.put("end", end);
+        data.put("absoluteIndex", absoluteStart);
+        data.put("sessionId", sessionId);
         notifyListeners("ttsProgress", data);
     }
 
     @Override
-    public void onDone(String utteranceId) {
+    public void onDone(String utteranceId, int nextOffset, boolean isFinal, String sessionId) {
         JSObject data = new JSObject();
         data.put("utteranceId", utteranceId);
+        data.put("nextOffset", nextOffset);
+        data.put("isFinal", isFinal);
+        data.put("sessionId", sessionId);
         notifyListeners("ttsDone", data);
     }
 
     @Override
-    public void onError(String utteranceId, String error) {
+    public void onError(String utteranceId, String error, String sessionId) {
         Log.w(TAG, "TTS error for " + utteranceId + ": " + error);
         JSObject data = new JSObject();
         data.put("utteranceId", utteranceId);
         data.put("error", error);
+        data.put("sessionId", sessionId);
         notifyListeners("ttsError", data);
     }
 }

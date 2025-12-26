@@ -102,7 +102,8 @@ const streamChatCompletion = async (
     signal,
   }: { temperature: number; maxTokens: number; signal?: AbortSignal },
   apiKey: string,
-  onChunk: (text: string) => void
+  onChunk: (text: string) => void,
+  shouldStop?: () => boolean
 ): Promise<string> => {
   const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
@@ -168,6 +169,10 @@ const streamChatCompletion = async (
         if (text) {
           full += text;
           onChunk(text);
+          if (shouldStop?.()) {
+            await reader.cancel();
+            return full;
+          }
         }
       } catch {
         // ignore malformed chunks
@@ -312,6 +317,14 @@ const hasOutroSignature = (text: string) => {
   const hasName = tail.includes("Morgan Hayes");
   const hasShowName = /radio\s*Truyện\s*Đêm\s*Khuya/i.test(tail);
   return hasName && hasShowName;
+};
+
+const truncateAfterOutroSignature = (text: string) => {
+  const idx = text.lastIndexOf(OUTRO_SIGNATURE);
+  if (idx === -1) return { text, truncated: false };
+  const end = idx + OUTRO_SIGNATURE.length;
+  if (end >= text.length) return { text, truncated: false };
+  return { text: text.slice(0, end), truncated: true };
 };
 
 const getContextSnippet = (text: string, maxWords: number) => {
@@ -470,16 +483,31 @@ export const streamStoryWithControls = async (
         }, STORY_TIMEOUT_MS)
         : null;
 
+    let signatureReached = hasOutroSignature(fullText);
     try {
       await streamChatCompletion(
         messages,
         { temperature: STORY_TEMPERATURE, maxTokens, signal: controller.signal },
         apiKey,
         (chunk) => {
+          if (!chunk || signatureReached) return;
+          const next = fullText + chunk;
+          const { text: trimmed, truncated } = truncateAfterOutroSignature(next);
+          if (truncated) {
+            signatureReached = true;
+            const delta = trimmed.slice(fullText.length);
+            if (delta) {
+              newlyGeneratedText += delta;
+              onChunk(delta);
+            }
+            fullText = trimmed;
+            return;
+          }
           newlyGeneratedText += chunk;
-          fullText += chunk;
+          fullText = next;
           onChunk(chunk);
-        }
+        },
+        () => signatureReached
       );
     } catch (error) {
       if (timedOut) throw new Error("Story generation timed out.");
@@ -494,6 +522,7 @@ export const streamStoryWithControls = async (
       const abortError = new DOMException("Aborted", "AbortError");
       throw abortError;
     }
+    if (hasOutroSignature(fullText)) break;
 
     const wordsSoFar = countWords(fullText);
     const hardCapReached = lengthConfig.hardMaxWords
@@ -519,7 +548,7 @@ export const streamStoryWithControls = async (
     const hitHardMax = lengthConfig.hardMaxWords
       ? wordsAfter >= lengthConfig.hardMaxWords
       : false;
-    if ((doneEnough && finished) || hitHardMax) break;
+    if (finished || hitHardMax) break;
   }
 
   const totalWords = countWords(fullText);

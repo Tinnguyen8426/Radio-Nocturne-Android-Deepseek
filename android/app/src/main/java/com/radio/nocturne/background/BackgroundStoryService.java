@@ -128,6 +128,9 @@ public class BackgroundStoryService extends Service {
                     stopForegroundCompat();
                     return;
                 }
+                if (hasOutroSignature(fullText, config.outroSignature)) {
+                    break;
+                }
 
                 int wordsSoFar = countWords(fullText);
                 boolean hardCapReached = config.storyHardMaxWords > 0 && wordsSoFar >= config.storyHardMaxWords;
@@ -150,7 +153,7 @@ public class BackgroundStoryService extends Service {
                 boolean doneEnough = wordsAfter >= config.storyMinWords;
                 boolean finished = hasOutroSignature(fullText, config.outroSignature);
                 boolean hitHardMax = config.storyHardMaxWords > 0 && wordsAfter >= config.storyHardMaxWords;
-                if ((doneEnough && finished) || hitHardMax) break;
+                if (finished || hitHardMax) break;
             }
 
             notifyDone(fullText, currentNewText);
@@ -220,14 +223,17 @@ public class BackgroundStoryService extends Service {
                 String raw = responseBody.string();
                 String text = extractTextFromJson(raw);
                 if (text != null && !text.isEmpty()) {
-                    notifyChunk(text);
-                    return text;
+                    String trimmed = truncateAfterSignature(text, config.outroSignature);
+                    notifyChunk(trimmed);
+                    return trimmed;
                 }
                 return "";
             }
 
             BufferedSource source = responseBody.source();
             StringBuilder generated = new StringBuilder();
+            String signature = config.outroSignature == null ? "" : config.outroSignature;
+            boolean signatureReached = false;
             while (!source.exhausted()) {
                 if (cancelled.get()) {
                     notifyError("Aborted", true);
@@ -244,8 +250,24 @@ public class BackgroundStoryService extends Service {
                 String jsonStr = line.replaceFirst("^data:\\s*", "");
                 if ("[DONE]".equals(jsonStr)) break;
                 String text = extractTextFromJson(jsonStr);
-                if (text != null && !text.isEmpty()) {
+                if (text != null && !text.isEmpty() && !signatureReached) {
+                    int beforeLength = generated.length();
                     generated.append(text);
+                    if (!signature.isEmpty()) {
+                        int idx = generated.lastIndexOf(signature);
+                        if (idx >= 0) {
+                            int end = idx + signature.length();
+                            if (generated.length() > end) {
+                                generated.setLength(end);
+                            }
+                            signatureReached = true;
+                            int allowed = Math.max(0, end - beforeLength);
+                            if (allowed > 0) {
+                                notifyChunk(text.substring(0, Math.min(text.length(), allowed)));
+                            }
+                            break;
+                        }
+                    }
                     notifyChunk(text);
                 }
             }
@@ -297,6 +319,15 @@ public class BackgroundStoryService extends Service {
         if (obj == null || key == null || !obj.has(key) || obj.isNull(key)) return "";
         String value = obj.optString(key, "");
         return "null".equalsIgnoreCase(value) ? "" : value;
+    }
+
+    private static String truncateAfterSignature(String text, String signature) {
+        if (text == null || text.isEmpty() || signature == null || signature.isEmpty()) return text;
+        int idx = text.lastIndexOf(signature);
+        if (idx < 0) return text;
+        int end = idx + signature.length();
+        if (end >= text.length()) return text;
+        return text.substring(0, end);
     }
 
     private void notifyChunk(String text) {

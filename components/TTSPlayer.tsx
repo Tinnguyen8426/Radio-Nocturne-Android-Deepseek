@@ -68,6 +68,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     chunkEnd: number;
     mapper: number[];
   } | null>(null);
+  const nativeSessionIdRef = useRef('');
   const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
   const nativeSpeakRef = useRef<(offset?: number) => void>(() => undefined);
   const nativeReadyRef = useRef(false);
@@ -186,6 +187,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       utteranceRef.current = null;
       mapperRef.current = [];
       nativeChunkRef.current = null;
+      nativeSessionIdRef.current = '';
       setIsPlaying(false);
       setIsPaused(false);
       setWaitsForNextChunk(false);
@@ -302,29 +304,6 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
         return;
       }
 
-      const chunkEnd = computeChunkEnd(source, start);
-      const chunkText = source.slice(start, chunkEnd);
-      if (!chunkText.trim().length) {
-        updateOffset(chunkEnd);
-        await speakFromOffsetNative(chunkEnd);
-        return;
-      }
-
-      const { spoken, mapper } = sanitizeChunkForSpeech(chunkText);
-      if (!spoken.trim().length) {
-        updateOffset(chunkEnd);
-        await speakFromOffsetNative(chunkEnd);
-        return;
-      }
-
-      const utteranceId = `rn_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-      nativeChunkRef.current = {
-        utteranceId,
-        start,
-        chunkEnd,
-        mapper,
-      };
-
       updateOffset(start);
       setIsPlaying(true);
       setIsPaused(false);
@@ -332,13 +311,19 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       setError(null);
 
       try {
+        const sessionId = `rn_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+        nativeSessionIdRef.current = sessionId;
+        nativeChunkRef.current = null;
         await BackgroundTts.speak({
-          text: spoken,
+          text: source,
           rate: parseFloat(rate.toFixed(2)),
           pitch: parseFloat(pitch.toFixed(2)),
           language: language === 'vi' ? 'vi-VN' : 'en-US',
-          utteranceId,
+          utteranceId: sessionId,
           title: topic || 'Radio Nocturne',
+          startOffset: start,
+          continuous: true,
+          sessionId,
         });
       } catch (err) {
         const detail = describeError(err);
@@ -351,13 +336,11 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       }
     },
     [
-      computeChunkEnd,
       ensureNativeReady,
       language,
       nativeSupported,
       pitch,
       rate,
-      sanitizeChunkForSpeech,
       topic,
       updateOffset,
     ]
@@ -395,6 +378,12 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
 
     const handles: PluginListenerHandle[] = [];
     BackgroundTts.addListener('ttsProgress', (event: any) => {
+      const sessionId = typeof event?.sessionId === 'string' ? event.sessionId : '';
+      if (sessionId && sessionId !== nativeSessionIdRef.current) return;
+      if (typeof event.absoluteIndex === 'number') {
+        updateOffset(event.absoluteIndex);
+        return;
+      }
       const current = nativeChunkRef.current;
       if (!current || current.utteranceId !== event.utteranceId) return;
       if (typeof event.charIndex === 'number') {
@@ -406,6 +395,24 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       .catch(() => undefined);
 
     BackgroundTts.addListener('ttsDone', (event: any) => {
+      const sessionId = typeof event?.sessionId === 'string' ? event.sessionId : '';
+      if (sessionId && sessionId !== nativeSessionIdRef.current) return;
+      if (typeof event?.nextOffset === 'number') {
+        updateOffset(event.nextOffset);
+      }
+      if (typeof event?.isFinal === 'boolean') {
+        if (event.isFinal) {
+          const currentOffset = typeof event?.nextOffset === 'number' ? event.nextOffset : offsetRef.current;
+          if (latestTextRef.current.length > currentOffset + 5) {
+            nativeSpeakRef.current(currentOffset);
+          } else if (generatingRef.current) {
+            setWaitsForNextChunk(true);
+          } else {
+            setIsPlaying(false);
+          }
+        }
+        return;
+      }
       const current = nativeChunkRef.current;
       if (!current || current.utteranceId !== event.utteranceId) return;
       const newOffset = current.chunkEnd;
@@ -423,6 +430,8 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       .catch(() => undefined);
 
     BackgroundTts.addListener('ttsError', (event: any) => {
+      const sessionId = typeof event?.sessionId === 'string' ? event.sessionId : '';
+      if (sessionId && sessionId !== nativeSessionIdRef.current) return;
       const message =
         typeof event?.error === 'string' && event.error.length
           ? `TTS nền gặp lỗi: ${event.error}`

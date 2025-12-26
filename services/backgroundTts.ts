@@ -9,6 +9,9 @@ export interface BackgroundTtsPlugin {
     language: string;
     utteranceId: string;
     title?: string;
+    startOffset?: number;
+    continuous?: boolean;
+    sessionId?: string;
   }): Promise<void>;
   stop(): Promise<void>;
   shutdown(): Promise<void>;
