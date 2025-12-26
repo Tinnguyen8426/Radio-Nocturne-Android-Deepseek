@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.pm.ServiceInfo;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.os.Binder;
@@ -192,6 +193,7 @@ public class BackgroundTtsService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "onStartCommand");
+        initTts();
         ensureForeground("Đang chuẩn bị phát...");
         return START_STICKY;
     }
@@ -437,7 +439,15 @@ public class BackgroundTtsService extends Service {
             }
             return;
         }
-        startForeground(NOTIFICATION_ID, notification);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            );
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
         isForeground = true;
     }
 
@@ -496,6 +506,7 @@ public class BackgroundTtsService extends Service {
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();
     }
 
