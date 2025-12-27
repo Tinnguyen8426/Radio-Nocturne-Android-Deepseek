@@ -262,6 +262,8 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       if (!remaining.trim().length) {
         updateOffset(start);
         if (generatingRef.current) {
+          setIsPlaying(true);
+          setIsPaused(false);
           setWaitsForNextChunk(true);
         } else {
           setIsPlaying(false);
@@ -349,6 +351,8 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       if (!remaining.trim().length) {
         updateOffset(start);
         if (generatingRef.current) {
+          setIsPlaying(true);
+          setIsPaused(false);
           setWaitsForNextChunk(true);
         } else {
           setIsPlaying(false);
@@ -536,6 +540,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     if (!latestTextRef.current.trim().length) {
       if (generatingRef.current) {
         setIsPaused(false);
+        setIsPlaying(true);
         setWaitsForNextChunk(true);
         speakFromOffset(0);
       }
@@ -725,7 +730,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
           <button
             onClick={handleTogglePlayPause}
             className="p-3 rounded-full bg-red-700 hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={!text.length}
+            disabled={!text.length && !isGenerating}
             title={isPlaying && !isPaused ? 'Tạm dừng' : 'Phát'}
           >
             {isPlaying && !isPaused ? (
