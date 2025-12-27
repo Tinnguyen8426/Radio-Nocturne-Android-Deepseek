@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { generateTopicBatch, OUTRO_SIGNATURE, streamStoryWithControls } from './services/deepseekService';
+import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls } from './services/deepseekService';
 import { StoryStatus, GenerationState, GENRE_PROMPTS, Language, StoryRecord } from './types';
 import StoryDisplay from './components/StoryDisplay';
 import TTSPlayer, { TTSPlayerHandle } from './components/TTSPlayer';
 import StoryLibrary from './components/StoryLibrary';
+import PauseDialog from './components/PauseDialog';
 import { AlertCircle, ChevronDown, Dices, Loader2, Radio } from 'lucide-react';
 import {
   clearApiKey,
@@ -98,6 +99,10 @@ const TRANSLATIONS = {
     ttsSettings: "Cài đặt giọng đọc",
     ttsSettingsHint: "Chọn giọng đọc của Google hoặc hệ thống.",
     ttsInstall: "Cài dữ liệu TTS",
+    temperatureLabel: "Nhiệt độ tạo truyện (Temperature)",
+    temperatureHint: "Điều chỉnh độ sáng tạo và ngẫu nhiên. Thấp = nhất quán hơn, Cao = đa dạng hơn.",
+    temperatureLow: "Thấp (0.1)",
+    temperatureHigh: "Cao (2.0)",
   },
   en: {
     subtitle: "Frequency: 03:00 AM // Host: Morgan Hayes",
@@ -287,6 +292,8 @@ const App: React.FC = () => {
   );
   const [randomizingTopic, setRandomizingTopic] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showPauseDialog, setShowPauseDialog] = useState(false);
+  const [pausedStoryTitle, setPausedStoryTitle] = useState('');
   const aiTopicCacheRef = useRef<string[]>([]);
   const isNativeAndroid =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
@@ -472,6 +479,19 @@ const App: React.FC = () => {
 
   const handleStopBroadcast = () => {
     if (state.status !== StoryStatus.GENERATING) return;
+    // Tạo tiêu đề trước khi dừng
+    if (state.text.trim().length > 0) {
+      generateStoryTitle(language, lastTopicRef.current, state.text)
+        .then(title => {
+          setPausedStoryTitle(title || state.topic);
+        })
+        .catch(() => {
+          setPausedStoryTitle(state.topic);
+        });
+    } else {
+      setPausedStoryTitle(state.topic);
+    }
+    setShowPauseDialog(true);
     generationControllerRef.current?.abort();
   };
 
@@ -575,11 +595,25 @@ const App: React.FC = () => {
     const saveKey = `${language}:${state.topic}:${state.text.length}`;
     if (lastSavedKeyRef.current === saveKey) return;
     lastSavedKeyRef.current = saveKey;
-    saveStory({
-      topic: state.topic,
-      language,
-      text: state.text,
-    })
+    
+    // Tạo tiêu đề trước khi lưu
+    generateStoryTitle(language, lastTopicRef.current, state.text)
+      .then(title => {
+        return saveStory({
+          topic: state.topic,
+          language,
+          text: state.text,
+          title,
+        });
+      })
+      .catch(() => {
+        // Nếu sinh tiêu đề thất bại, lưu mà không có title
+        return saveStory({
+          topic: state.topic,
+          language,
+          text: state.text,
+        });
+      })
       .then((record) => {
         setStories((prev) => [record, ...prev]);
         setActiveStoryId(record.id);
@@ -604,6 +638,42 @@ const App: React.FC = () => {
     setStartFromOffset(offset);
     setTtsStoryKey((key) => key + 1);
     setTtsOffset(offset);
+  };
+
+  const handleResumePausedStory = () => {
+    setShowPauseDialog(false);
+    // Tiếp tục tạo truyện hiện tại
+    handleResumeBroadcast();
+  };
+
+  const handleCreateNewFromPause = () => {
+    setShowPauseDialog(false);
+    // Lưu truyện hiện tại
+    if (state.text.trim().length > 0) {
+      saveStory({
+        topic: state.topic,
+        language,
+        text: state.text,
+        title: pausedStoryTitle,
+      })
+        .then((record) => {
+          setStories((prev) => [record, ...prev]);
+        })
+        .catch((error) => console.error("Failed to save story:", error));
+    }
+    // Tạo truyện mới
+    setTopicInput('');
+    setTtsOffset(0);
+    setStartFromOffset(0);
+    setTtsStoryKey((key) => key + 1);
+    setState({
+      status: StoryStatus.IDLE,
+      text: '',
+      topic: '',
+      error: undefined,
+    });
+    setActiveStoryId(null);
+    setPausedStoryTitle('');
   };
 
   const handleToggleFavorite = async (story: StoryRecord) => {
@@ -969,8 +1039,15 @@ const App: React.FC = () => {
                 </label>
               </div>
               <div className="mt-5 pt-5 border-t border-zinc-800">
-                <label className="flex flex-col gap-2 text-zinc-400">
-                  <span className="text-sm text-zinc-200">{t.temperatureLabel}</span>
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-zinc-200 font-medium">
+                      {t.temperatureLabel}
+                    </label>
+                    <span className="text-sm font-mono text-zinc-400 bg-zinc-800 px-2 py-1 rounded">
+                      {storyTemperature.toFixed(2)}
+                    </span>
+                  </div>
                   <input
                     type="range"
                     min="0.1"
@@ -978,15 +1055,16 @@ const App: React.FC = () => {
                     step="0.05"
                     value={storyTemperature}
                     onChange={(e) => handleTemperatureChange(Number(e.target.value))}
-                    className="w-full accent-red-600"
+                    className="w-full accent-red-600 h-2 cursor-pointer"
                   />
-                  <div className="flex justify-between text-[11px] text-zinc-500">
+                  <div className="flex justify-between items-center text-[11px] text-zinc-500">
                     <span>{t.temperatureLow}</span>
-                    <span className="font-mono">{storyTemperature.toFixed(2)}</span>
                     <span>{t.temperatureHigh}</span>
                   </div>
-                  <span className="text-[11px] text-zinc-500">{t.temperatureHint}</span>
-                </label>
+                  <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                    {t.temperatureHint}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -1091,6 +1169,15 @@ const App: React.FC = () => {
           />
         </div>
       </div>
+
+      <PauseDialog
+        isOpen={showPauseDialog}
+        storyTitle={pausedStoryTitle}
+        onResume={handleResumePausedStory}
+        onCreateNew={handleCreateNewFromPause}
+        onClose={() => setShowPauseDialog(false)}
+        language={language}
+      />
 
       <footer className="mt-16 text-zinc-700 text-xs font-mono text-center">
         <p>{t.footerCaution}</p>

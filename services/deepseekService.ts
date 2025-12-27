@@ -763,6 +763,7 @@ export const streamStoryWithControls = async (
   if (!apiKey) throw new Error("API Key is missing");
 
   const personalization = await getStoryPersonalization();
+  const storyTemperature = await getStoryTemperature();
   const lengthConfig = buildLengthConfig(personalization.targetWords);
   const storyModel = await getStoryModel();
   const flavorSeed =
@@ -1139,5 +1140,60 @@ REQUIREMENTS:
   } catch (error) {
     console.error("Topic batch generation error:", error);
     return [];
+  }
+};
+
+export const generateStoryTitle = async (lang: Language, topic: string, storyText?: string): Promise<string> => {
+  const apiKey = await getResolvedApiKey();
+  if (!apiKey) throw new Error("API Key is missing");
+
+  // Nếu có topic, dùng topic làm tiêu đề
+  if (topic && topic.trim().length > 0) {
+    return topic.trim();
+  }
+
+  // Nếu không có topic, sinh tiêu đề từ đoạn đầu của truyện
+  if (!storyText || storyText.trim().length === 0) {
+    return lang === 'vi' ? 'Truyện không tên' : 'Untitled Story';
+  }
+
+  const prompt = lang === "vi"
+    ? `Dựa vào đoạn truyện sau, hãy tạo một tiêu đề ngắn gọn (tối đa 10 từ) cho truyện này. Tiêu đề phải gợi lên bí ẩn, siêu nhiên hoặc thuyết âm mưu.
+OUTPUT: Chỉ tiêu đề, không có giải thích thêm.
+\n\nĐoạn truyện:\n${storyText.slice(0, 500)}`
+    : `Based on the story excerpt below, create a short title (max 10 words) that evokes mystery, supernatural, or conspiracy themes.
+OUTPUT: Only the title, no explanation.
+\n\nStory excerpt:\n${storyText.slice(0, 500)}`;
+
+  try {
+    const response = await fetch(`${BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: TOPIC_MODEL,
+        messages: [
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 50,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`DeepSeek API error ${response.status}`);
+    }
+
+    const data = await response.json().catch(() => null);
+    const title = (data?.choices?.[0]?.message?.content?.trim()
+      || data?.choices?.[0]?.text?.trim()
+      || "").slice(0, 100);
+
+    return title || (lang === 'vi' ? 'Truyện không tên' : 'Untitled Story');
+  } catch (error) {
+    console.error("Story title generation error:", error);
+    return lang === 'vi' ? 'Truyện không tên' : 'Untitled Story';
   }
 };

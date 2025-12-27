@@ -23,6 +23,7 @@ const createId = () => {
 const mapRow = (row: Record<string, any>): StoryRecord => ({
   id: String(row.id),
   topic: String(row.topic || ''),
+  title: String(row.title || ''),
   language: row.language as Language,
   text: String(row.text || ''),
   createdAt: String(row.created_at || ''),
@@ -40,6 +41,7 @@ const readWebStories = (): StoryRecord[] => {
     return parsed.map((item) => ({
       id: String(item.id || createId()),
       topic: String(item.topic || ''),
+      title: String(item.title || ''),
       language: item.language as Language,
       text: String(item.text || ''),
       createdAt: String(item.createdAt || ''),
@@ -68,6 +70,7 @@ const ensureDb = async () => {
       `CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
         id TEXT PRIMARY KEY NOT NULL,
         topic TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
         language TEXT NOT NULL,
         text TEXT NOT NULL,
         created_at TEXT NOT NULL,
@@ -83,6 +86,11 @@ const ensureDb = async () => {
     }
     try {
       await db.execute(`ALTER TABLE ${TABLE_NAME} ADD COLUMN last_progress_at TEXT;`);
+    } catch {
+      // Column already exists
+    }
+    try {
+      await db.execute(`ALTER TABLE ${TABLE_NAME} ADD COLUMN title TEXT NOT NULL DEFAULT '';`);
     } catch {
       // Column already exists
     }
@@ -115,10 +123,12 @@ export const saveStory = async (input: {
   topic: string;
   language: Language;
   text: string;
+  title?: string;
 }): Promise<StoryRecord> => {
   const record: StoryRecord = {
     id: createId(),
     topic: input.topic,
+    title: input.title || '',
     language: input.language,
     text: input.text,
     createdAt: new Date().toISOString(),
@@ -137,11 +147,12 @@ export const saveStory = async (input: {
   const database = await ensureDb();
   if (!database) return record;
   await database.run(
-    `INSERT INTO ${TABLE_NAME} (id, topic, language, text, created_at, is_favorite, last_offset, last_progress_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ${TABLE_NAME} (id, topic, title, language, text, created_at, is_favorite, last_offset, last_progress_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       record.id,
       record.topic,
+      record.title,
       record.language,
       record.text,
       record.createdAt,

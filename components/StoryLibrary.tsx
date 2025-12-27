@@ -68,8 +68,11 @@ const StoryLibrary: React.FC<StoryLibraryProps> = ({
               className="group flex items-start justify-between gap-4 p-3 rounded border border-zinc-800 bg-zinc-950 hover:border-red-900/60 hover:bg-zinc-900 transition cursor-pointer"
             >
               <div className="flex-1 min-w-0">
-                <div className="text-sm text-zinc-200 font-mono truncate">
-                  {story.topic || fallbackTitle}
+                <div className="text-sm text-cyan-300 font-semibold truncate">
+                  {story.title || story.topic || fallbackTitle}
+                </div>
+                <div className="text-xs text-zinc-500 mt-1 truncate">
+                  {story.topic ? `${language === 'vi' ? 'Chủ đề: ' : 'Topic: '}${story.topic}` : ''}
                 </div>
                 <div className="text-[11px] uppercase tracking-wide text-zinc-500 mt-1">
                   {story.language === 'vi' ? 'VN' : 'EN'} · {formatDate(story.createdAt, language)}

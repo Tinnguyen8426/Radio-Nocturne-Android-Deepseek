@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { Play, Pause, Headphones, Waves, SlidersHorizontal, X } from 'lucide-react';
+import { Play, Pause, Headphones, Waves, SlidersHorizontal, X, SkipBack, SkipForward } from 'lucide-react';
 import { Language } from '../types';
 import { BackgroundTts } from '../services/backgroundTts';
 
@@ -663,6 +663,28 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     stopPlayback();
   }, [stopPlayback]);
 
+  const formatTime = useCallback((offset: number) => {
+    // Estimate time based on reading speed (assuming ~150 words per minute)
+    const words = text.slice(0, offset).split(/\s+/).filter(Boolean).length;
+    const minutes = Math.floor(words / 150);
+    const seconds = Math.floor((words % 150) / 2.5);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, [text]);
+
+  const handleSkipBackward = useCallback(() => {
+    const skipAmount = 100; // ~10 seconds worth of text
+    const newOffset = Math.max(0, offsetRef.current - skipAmount);
+    updateOffset(newOffset);
+    speakFromOffset(newOffset);
+  }, [speakFromOffset, updateOffset]);
+
+  const handleSkipForward = useCallback(() => {
+    const skipAmount = 100; // ~10 seconds worth of text
+    const newOffset = Math.min(text.length, offsetRef.current + skipAmount);
+    updateOffset(newOffset);
+    speakFromOffset(newOffset);
+  }, [text.length, speakFromOffset, updateOffset]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -767,7 +789,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
           {waitsForNextChunk && (
             <span className="flex items-center gap-1 text-red-400 text-[10px]">
               <Waves className="animate-pulse" size={14} />
-              <span>Tự động nối tiếp</span>
+              <span>{language === 'vi' ? 'Tự động nối tiếp' : 'Auto-continue'}</span>
             </span>
           )}
         </div>
@@ -775,20 +797,20 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
         <div className="flex items-center gap-2 ml-auto">
           <button
             onClick={handleTogglePlayPause}
-            className="p-3 rounded-full bg-red-700 hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            className="p-3 rounded-full bg-red-700 hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-lg"
             disabled={!text.length && !isGenerating}
-            title={isPlaying && !isPaused ? 'Tạm dừng' : 'Phát'}
+            title={isPlaying && !isPaused ? (language === 'vi' ? 'Tạm dừng' : 'Pause') : (language === 'vi' ? 'Phát' : 'Play')}
           >
             {isPlaying && !isPaused ? (
-              <Pause size={18} className="text-white" />
+              <Pause size={20} className="text-white" />
             ) : (
-              <Play size={18} className="text-white" />
+              <Play size={20} className="text-white ml-0.5" />
             )}
           </button>
           <button
             onClick={() => setShowTuning((prev) => !prev)}
             className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition"
-            title="Điều chỉnh tốc độ & cao độ"
+            title={language === 'vi' ? 'Điều chỉnh tốc độ & cao độ' : 'Adjust speed & pitch'}
           >
             {showTuning ? <X size={18} /> : <SlidersHorizontal size={18} />}
           </button>
@@ -796,14 +818,59 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       </div>
 
       <div className="px-4 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-red-600 transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            ></div>
+        {/* Timeline Scrubber */}
+        <div className="mb-3">
+          <input
+            type="range"
+            min="0"
+            max={text.length || 1}
+            value={currentOffset}
+            onChange={(e) => {
+              const newOffset = Number(e.target.value);
+              updateOffset(newOffset);
+              speakFromOffset(newOffset);
+            }}
+            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-red-600"
+            style={{
+              background: `linear-gradient(to right, rgb(220, 38, 38) 0%, rgb(220, 38, 38) ${progress}%, rgb(39, 39, 42) ${progress}%, rgb(39, 39, 42) 100%)`
+            }}
+            disabled={!text.length}
+          />
+        </div>
+
+        {/* Time and Controls */}
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSkipBackward}
+              disabled={!text.length || currentOffset === 0}
+              className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={language === 'vi' ? 'Lùi 10 giây' : 'Rewind 10s'}
+            >
+              <SkipBack size={16} className="text-zinc-300" />
+            </button>
+            <span className="text-[11px] text-zinc-500 font-mono min-w-[45px]">
+              {text.length > 0 ? formatTime(currentOffset) : '0:00'}
+            </span>
           </div>
-          <span className="text-[11px] text-zinc-500 font-mono w-16 text-right">{progress.toFixed(0)}%</span>
+          
+          <div className="flex-1 text-center">
+            <span className="text-[11px] text-zinc-500 font-mono">{progress.toFixed(0)}%</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-zinc-500 font-mono min-w-[45px] text-right">
+              {text.length > 0 ? formatTime(text.length) : '0:00'}
+            </span>
+            <button
+              onClick={handleSkipForward}
+              disabled={!text.length || currentOffset >= text.length}
+              className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={language === 'vi' ? 'Tới 10 giây' : 'Forward 10s'}
+            >
+              <SkipForward size={16} className="text-zinc-300" />
+            </button>
+          </div>
         </div>
 
         {showTuning && (
