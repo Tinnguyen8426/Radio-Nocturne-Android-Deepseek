@@ -75,6 +75,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     chunkEnd: number;
     mapper: number[];
   } | null>(null);
+  const nativeSpeakingRef = useRef(false);
   const nativeSessionIdRef = useRef('');
   const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
   const nativeSpeakRef = useRef<(offset?: number) => void>(() => undefined);
@@ -239,6 +240,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       utteranceRef.current = null;
       mapperRef.current = [];
       nativeChunkRef.current = null;
+      nativeSpeakingRef.current = false;
       nativeSessionIdRef.current = '';
       setIsPlaying(false);
       setIsPaused(false);
@@ -371,6 +373,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
         const sessionId = `rn_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
         nativeSessionIdRef.current = sessionId;
         nativeChunkRef.current = null;
+        nativeSpeakingRef.current = true;
         await BackgroundTts.speak({
           text: source,
           rate: parseFloat(rate.toFixed(2)),
@@ -390,6 +393,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
             : 'Không thể khởi chạy TTS nền. Vui lòng thử lại.'
         );
         setIsPlaying(false);
+        nativeSpeakingRef.current = false;
       }
     },
     [
@@ -435,7 +439,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     latestTextRef.current = text;
     const hasNewContent = text.length > lastTextLengthRef.current;
     const wasWaitingForChunk = waitsForNextChunk && hasNewContent;
-    const noActiveSpeech = isNativeAndroid ? !nativeChunkRef.current : !utteranceRef.current;
+    const noActiveSpeech = isNativeAndroid ? !nativeSpeakingRef.current : !utteranceRef.current;
 
     if (wasWaitingForChunk) {
       setWaitsForNextChunk(false);
@@ -446,6 +450,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
         speakFromOffset(offsetRef.current);
       } else if (isNativeAndroid) {
         BackgroundTts.stop().catch(() => undefined);
+        nativeSpeakingRef.current = false;
         void speakFromOffsetNative(offsetRef.current);
       }
     }
@@ -494,6 +499,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       if (typeof event?.nextOffset === 'number') {
         updateOffset(event.nextOffset);
       }
+      nativeSpeakingRef.current = false;
       if (typeof event?.isFinal === 'boolean') {
         if (event.isFinal) {
           const currentOffset = typeof event?.nextOffset === 'number' ? event.nextOffset : offsetRef.current;
@@ -512,6 +518,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       const newOffset = current.chunkEnd;
       updateOffset(newOffset);
       nativeChunkRef.current = null;
+      nativeSpeakingRef.current = false;
       if (latestTextRef.current.length > newOffset + 5) {
         nativeSpeakRef.current(newOffset);
       } else if (generatingRef.current) {
@@ -533,6 +540,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       setError(message);
       setIsPlaying(false);
       nativeChunkRef.current = null;
+      nativeSpeakingRef.current = false;
     })
       .then((handle) => handles.push(handle))
       .catch(() => undefined);
@@ -584,6 +592,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     if (!speechSupported) return;
     if (isNativeAndroid) {
       BackgroundTts.stop().catch(() => undefined);
+      nativeSpeakingRef.current = false;
       setIsPlaying(false);
       setIsPaused(true);
       return;
@@ -669,6 +678,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     updateOffset(normalized);
     if (isNativeAndroid) {
       BackgroundTts.stop().catch(() => undefined);
+      nativeSpeakingRef.current = false;
     } else if (speechSupported) {
       window.speechSynthesis.cancel();
     }
