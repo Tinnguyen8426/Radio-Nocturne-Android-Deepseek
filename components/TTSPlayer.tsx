@@ -151,41 +151,6 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     }
   }, [nativeSupported]);
 
-  useEffect(() => {
-    if (!isNativeAndroid) return;
-    LocalNotifications.requestPermissions().catch(() => undefined);
-    LocalNotifications.registerActionTypes({
-      types: [
-        {
-          id: NOW_PLAYING_ACTION,
-          actions: [
-            { id: 'tts_play', title: 'Tiếp tục' },
-            { id: 'tts_pause', title: 'Tạm dừng' },
-          ],
-        },
-      ],
-    }).catch(() => undefined);
-
-    LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
-      if (event?.notification?.id !== NOW_PLAYING_NOTIFICATION_ID) return;
-      if (event.actionId === 'tts_pause') {
-        handlePause();
-      }
-      if (event.actionId === 'tts_play') {
-        handlePlay();
-      }
-    })
-      .then((handle) => {
-        notificationActionRef.current = handle;
-      })
-      .catch(() => undefined);
-
-    return () => {
-      notificationActionRef.current?.remove();
-      notificationActionRef.current = null;
-    };
-  }, [handlePause, handlePlay, isNativeAndroid]);
-
   const ensureNativeReady = useCallback(async () => {
     if (!isNativeAndroid) return true;
     if (nativeReadyRef.current && nativeSupported) return true;
@@ -571,7 +536,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     window.speechSynthesis.pause();
     setIsPaused(true);
   }, [isNativeAndroid, speechSupported]);
-  
+
   const handleTogglePlayPause = useCallback(() => {
     if (isPlaying && !isPaused) {
       handlePause();
@@ -579,6 +544,41 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       handlePlay();
     }
   }, [isPlaying, isPaused, handlePause, handlePlay]);
+
+  useEffect(() => {
+    if (!isNativeAndroid) return;
+    LocalNotifications.requestPermissions().catch(() => undefined);
+    LocalNotifications.registerActionTypes({
+      types: [
+        {
+          id: NOW_PLAYING_ACTION,
+          actions: [
+            { id: 'tts_play', title: 'Tiếp tục' },
+            { id: 'tts_pause', title: 'Tạm dừng' },
+          ],
+        },
+      ],
+    }).catch(() => undefined);
+
+    LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
+      if (event?.notification?.id !== NOW_PLAYING_NOTIFICATION_ID) return;
+      if (event.actionId === 'tts_pause') {
+        handlePause();
+      }
+      if (event.actionId === 'tts_play') {
+        handlePlay();
+      }
+    })
+      .then((handle) => {
+        notificationActionRef.current = handle;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      notificationActionRef.current?.remove();
+      notificationActionRef.current = null;
+    };
+  }, [handlePause, handlePlay, isNativeAndroid]);
 
   const handleStop = useCallback(() => {
     stopPlayback();
