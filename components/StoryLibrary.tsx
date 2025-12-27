@@ -77,6 +77,15 @@ const StoryLibrary: React.FC<StoryLibraryProps> = ({
                 <div className="text-xs text-zinc-500 mt-2 line-clamp-2">
                   {story.text.slice(0, 160)}...
                 </div>
+                {story.lastOffset > 0 && story.text.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-amber-300">
+                    <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+                    <span>
+                      {language === 'vi' ? 'Đọc dở:' : 'In progress:'}{' '}
+                      {Math.min(100, Math.round((story.lastOffset / Math.max(1, story.text.length)) * 100))}%
+                    </span>
+                  </div>
+                )}
               </div>
               <button
                 type="button"

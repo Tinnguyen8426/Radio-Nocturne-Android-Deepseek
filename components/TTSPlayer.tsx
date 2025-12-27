@@ -21,10 +21,13 @@ interface TTSPlayerProps {
   topic: string;
   language: Language;
   isGenerating: boolean;
+  startFromOffset?: number;
   onProgress?: (offset: number) => void;
 }
 
 const CHUNK_GRANULARITY = 700;
+const NOW_PLAYING_ACTION = 'tts-controls';
+const NOW_PLAYING_NOTIFICATION_ID = 4242;
 const describeError = (err: unknown) => {
   if (err instanceof Error && err.message) return err.message;
   if (typeof err === 'string') return err;
@@ -44,7 +47,7 @@ const describeError = (err: unknown) => {
 };
 
 const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
-  const { text, topic, language, isGenerating, onProgress } = props;
+  const { text, topic, language, isGenerating, startFromOffset = 0, onProgress } = props;
   const [rate, setRate] = useState(1);
   const [pitch, setPitch] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -72,10 +75,55 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
   const nativeSpeakRef = useRef<(offset?: number) => void>(() => undefined);
   const nativeReadyRef = useRef(false);
+  const externalStartRef = useRef(startFromOffset);
+  const notificationActionRef = useRef<PluginListenerHandle | null>(null);
 
   const speechSupported = isNativeAndroid
     ? nativeSupported
     : typeof window !== 'undefined' && typeof window.speechSynthesis !== 'undefined';
+
+  const clearNowPlayingNotification = useCallback(() => {
+    if (!isNativeAndroid) return;
+    LocalNotifications.cancel({ notifications: [{ id: NOW_PLAYING_NOTIFICATION_ID }] }).catch(() => undefined);
+  }, [isNativeAndroid]);
+
+  const pushNowPlayingNotification = useCallback(
+    async (status: 'playing' | 'paused') => {
+      if (!isNativeAndroid) return;
+      try {
+        await LocalNotifications.registerActionTypes({
+          types: [
+            {
+              id: NOW_PLAYING_ACTION,
+              actions: [
+                { id: 'tts_play', title: 'Tiếp tục' },
+                { id: 'tts_pause', title: 'Tạm dừng' },
+              ],
+            },
+          ],
+        });
+      } catch {
+        // Ignore registration issues
+      }
+
+      try {
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id: NOW_PLAYING_NOTIFICATION_ID,
+              title: topic || 'Radio Nocturne',
+              body: status === 'playing' ? 'Đang phát truyện...' : 'Đã tạm dừng phát.',
+              ongoing: true,
+              actionTypeId: NOW_PLAYING_ACTION,
+            },
+          ],
+        });
+      } catch {
+        // Ignore scheduling errors
+      }
+    },
+    [isNativeAndroid, topic]
+  );
 
   const updateOffset = useCallback(
     (value: number) => {
@@ -102,6 +150,41 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       nativeReadyRef.current = false;
     }
   }, [nativeSupported]);
+
+  useEffect(() => {
+    if (!isNativeAndroid) return;
+    LocalNotifications.requestPermissions().catch(() => undefined);
+    LocalNotifications.registerActionTypes({
+      types: [
+        {
+          id: NOW_PLAYING_ACTION,
+          actions: [
+            { id: 'tts_play', title: 'Tiếp tục' },
+            { id: 'tts_pause', title: 'Tạm dừng' },
+          ],
+        },
+      ],
+    }).catch(() => undefined);
+
+    LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
+      if (event?.notification?.id !== NOW_PLAYING_NOTIFICATION_ID) return;
+      if (event.actionId === 'tts_pause') {
+        handlePause();
+      }
+      if (event.actionId === 'tts_play') {
+        handlePlay();
+      }
+    })
+      .then((handle) => {
+        notificationActionRef.current = handle;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      notificationActionRef.current?.remove();
+      notificationActionRef.current = null;
+    };
+  }, [handlePause, handlePlay, isNativeAndroid]);
 
   const ensureNativeReady = useCallback(async () => {
     if (!isNativeAndroid) return true;
@@ -192,11 +275,12 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       setIsPaused(false);
       setWaitsForNextChunk(false);
       setError(null);
+      clearNowPlayingNotification();
       if (resetOffset) {
         updateOffset(0);
       }
     },
-    [isNativeAndroid, speechSupported, updateOffset]
+    [clearNowPlayingNotification, isNativeAndroid, speechSupported, updateOffset]
   );
 
   const speakFromOffsetWeb = useCallback(
@@ -452,6 +536,15 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     };
   }, [isNativeAndroid, updateOffset]);
 
+  useEffect(() => {
+    if (!isNativeAndroid) return;
+    if (!isPlaying && !isPaused) {
+      clearNowPlayingNotification();
+      return;
+    }
+    pushNowPlayingNotification(isPaused ? 'paused' : 'playing');
+  }, [clearNowPlayingNotification, isNativeAndroid, isPaused, isPlaying, pushNowPlayingNotification]);
+
   const handlePlay = useCallback(() => {
     if (!speechSupported || !latestTextRef.current.trim().length) return;
 
@@ -504,10 +597,31 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   );
 
   useEffect(() => {
+    const normalized = Math.max(0, Math.min(startFromOffset, text.length));
+    externalStartRef.current = normalized;
+    latestTextRef.current = text;
     if (!text.length) {
       stopPlayback();
+      return;
     }
-  }, [text, stopPlayback]);
+
+    updateOffset(normalized);
+    if (isNativeAndroid) {
+      BackgroundTts.stop().catch(() => undefined);
+    } else if (speechSupported) {
+      window.speechSynthesis.cancel();
+    }
+    setIsPlaying(false);
+    setIsPaused(false);
+    setWaitsForNextChunk(false);
+  }, [
+    isNativeAndroid,
+    speechSupported,
+    startFromOffset,
+    stopPlayback,
+    text,
+    updateOffset,
+  ]);
 
   useEffect(() => {
     // This effect can cause issues if it re-triggers speech unnecessarily.
