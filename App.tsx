@@ -25,7 +25,10 @@ import { BackgroundStory } from './services/backgroundStory';
 import { BackgroundTts } from './services/backgroundTts';
 import {
   DEFAULT_STORY_PERSONALIZATION,
+  getTtsPitch,
+  getTtsRate,
   getAllowBackgroundGeneration,
+  initSettingsStore,
   getStoryPersonalization,
   getStoryModel,
   getStoryTemperature,
@@ -34,6 +37,8 @@ import {
   TARGET_MIN_OFFSET,
   TARGET_MIN_WORDS,
   setAllowBackgroundGeneration,
+  setTtsPitch as persistTtsPitch,
+  setTtsRate as persistTtsRate,
   getReuseStoryCache,
   setStoryPersonalization,
   setReuseStoryCache,
@@ -381,6 +386,10 @@ const App: React.FC = () => {
   const [personalization, setPersonalization] = useState<StoryPersonalization>(
     DEFAULT_STORY_PERSONALIZATION
   );
+  const [ttsRate, setTtsRateState] = useState(1);
+  const [ttsPitch, setTtsPitchState] = useState(1);
+  const settingsLoadedRef = useRef(false);
+  const [thoughtStream, setThoughtStream] = useState('');
   const [randomizingTopic, setRandomizingTopic] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showPauseDialog, setShowPauseDialog] = useState(false);
@@ -427,7 +436,7 @@ const App: React.FC = () => {
     let alive = true;
     const load = async () => {
       try {
-        await initStoryStore();
+        await Promise.all([initStoryStore(), initSettingsStore()]);
         const [
           storedStories,
           storedKey,
@@ -436,6 +445,8 @@ const App: React.FC = () => {
           storedReuseCache,
           storedStoryModel,
           storedTemperature,
+          storedTtsRate,
+          storedTtsPitch,
         ] = await Promise.all([
           listStories(),
           getStoredApiKey(),
@@ -444,6 +455,8 @@ const App: React.FC = () => {
           getReuseStoryCache(),
           getStoryModel(),
           getStoryTemperature(),
+          getTtsRate(),
+          getTtsPitch(),
         ]);
         if (!alive) return;
         setStories(storedStories);
@@ -452,6 +465,9 @@ const App: React.FC = () => {
         setReuseCache(storedReuseCache);
         setStoryModelState(storedStoryModel);
         setStoryTemperature(storedTemperature);
+        setTtsRateState(storedTtsRate);
+        setTtsPitchState(storedTtsPitch);
+        settingsLoadedRef.current = true;
         if (storedKey) {
           setApiKeyInput(storedKey);
           setApiKeyStatus('stored');
@@ -475,6 +491,28 @@ const App: React.FC = () => {
       setTtsOffset(0);
     }
   }, [state.text]);
+
+  useEffect(() => {
+    if (settingsLoadedRef.current) {
+      persistTtsRate(ttsRate).catch((error) => {
+        console.error('Failed to persist TTS rate:', error);
+      });
+    }
+  }, [ttsRate]);
+
+  useEffect(() => {
+    if (settingsLoadedRef.current) {
+      persistTtsPitch(ttsPitch).catch((error) => {
+        console.error('Failed to persist TTS pitch:', error);
+      });
+    }
+  }, [ttsPitch]);
+
+  useEffect(() => {
+    if (state.text.length > 0 && thoughtStream) {
+      setThoughtStream('');
+    }
+  }, [state.text, thoughtStream]);
 
   useEffect(() => {
     if (!isNativeAndroid) return;
@@ -506,6 +544,7 @@ const App: React.FC = () => {
     setStartFromOffset(0);
     setTtsStoryKey((key) => key + 1);
     setTtsOffset(0);
+    setThoughtStream('');
     
     // Clean up previous generation request
     if (generationControllerRef.current) {
@@ -541,15 +580,26 @@ const App: React.FC = () => {
 
     try {
       let fullText = '';
+      let hasStoryText = false;
       await streamStoryWithControls(
         trimmedTopic,
         language,
         (chunk) => {
           if (requestId !== generationIdRef.current) return;
+          hasStoryText = true;
+          setThoughtStream('');
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
-        { signal: controller.signal, seed: generationSeed, cacheAnchors }
+        {
+          signal: controller.signal,
+          seed: generationSeed,
+          cacheAnchors,
+          onReasoningChunk: (reasoning) => {
+            if (requestId !== generationIdRef.current || hasStoryText) return;
+            setThoughtStream((prev) => (prev + reasoning).slice(-4000));
+          },
+        }
       );
 
       fullText = normalizeOutroSignature(fullText);
@@ -559,6 +609,7 @@ const App: React.FC = () => {
     } catch (error) {
       if (requestId !== generationIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
+        setThoughtStream('');
         setState(prev => ({
           ...prev,
           status: StoryStatus.PAUSED,
@@ -566,6 +617,7 @@ const App: React.FC = () => {
         }));
         return;
       }
+      setThoughtStream('');
       const detail = error instanceof Error ? error.message : String(error);
       setState(prev => ({
         ...prev,
@@ -581,6 +633,7 @@ const App: React.FC = () => {
 
   const handleStopBroadcast = () => {
     if (state.status !== StoryStatus.GENERATING) return;
+    setThoughtStream('');
     // Tạo tiêu đề trước khi dừng
     if (state.text.trim().length > 0) {
       generateStoryTitle(language, lastTopicRef.current, state.text)
@@ -605,6 +658,7 @@ const App: React.FC = () => {
     if (!state.text.trim().length) return;
 
     setActiveStoryId(null);
+    setThoughtStream('');
     
     // Clean up previous generation request
     if (generationControllerRef.current) {
@@ -630,6 +684,7 @@ const App: React.FC = () => {
     generationControllerRef.current = controller;
 
     const initialText = state.text;
+    let hasStoryText = initialText.trim().length > 0;
 
     setState(prev => ({
       ...prev,
@@ -645,10 +700,21 @@ const App: React.FC = () => {
         language,
         (chunk) => {
           if (requestId !== generationIdRef.current) return;
+          hasStoryText = true;
+          setThoughtStream('');
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
-        { signal: controller.signal, existingText: initialText, seed: generationSeed, cacheAnchors }
+        {
+          signal: controller.signal,
+          existingText: initialText,
+          seed: generationSeed,
+          cacheAnchors,
+          onReasoningChunk: (reasoning) => {
+            if (requestId !== generationIdRef.current || hasStoryText) return;
+            setThoughtStream((prev) => (prev + reasoning).slice(-4000));
+          },
+        }
       );
 
       fullText = normalizeOutroSignature(fullText);
@@ -658,6 +724,7 @@ const App: React.FC = () => {
     } catch (error) {
       if (requestId !== generationIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
+        setThoughtStream('');
         setState(prev => ({
           ...prev,
           status: StoryStatus.PAUSED,
@@ -665,6 +732,7 @@ const App: React.FC = () => {
         }));
         return;
       }
+      setThoughtStream('');
       const detail = error instanceof Error ? error.message : String(error);
       setState(prev => ({
         ...prev,
@@ -751,6 +819,7 @@ const App: React.FC = () => {
     lastSavedKeyRef.current = '';
     lastTopicRef.current = '';
     lastUsingAutoTopicRef.current = false;
+    setThoughtStream('');
     
     setActiveStoryId(story.id);
     setActiveTab('home');
@@ -1056,6 +1125,7 @@ const App: React.FC = () => {
               isGenerating={state.status === StoryStatus.GENERATING}
               topic={state.topic}
               language={language}
+              thoughtStream={thoughtStream}
               currentOffset={ttsOffset}
               onJumpRequest={(offset) => ttsRef.current?.jumpToOffset(offset)}
             />
@@ -1308,6 +1378,10 @@ const App: React.FC = () => {
             storyKey={ttsStoryKey}
             onProgress={setTtsOffset}
             startFromOffset={startFromOffset}
+            initialRate={ttsRate}
+            initialPitch={ttsPitch}
+            onRateChange={setTtsRateState}
+            onPitchChange={setTtsPitchState}
           />
         </div>
       </div>

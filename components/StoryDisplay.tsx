@@ -10,6 +10,7 @@ interface StoryDisplayProps {
   language: Language;
   currentOffset?: number;
   onJumpRequest?: (offset: number) => void;
+  thoughtStream?: string;
 }
 
 const StoryDisplay: React.FC<StoryDisplayProps> = ({
@@ -17,6 +18,7 @@ const StoryDisplay: React.FC<StoryDisplayProps> = ({
   isGenerating,
   topic,
   language,
+  thoughtStream = '',
   currentOffset = 0,
   onJumpRequest,
 }) => {
@@ -273,12 +275,23 @@ const StoryDisplay: React.FC<StoryDisplayProps> = ({
       >
         <div className="max-w-3xl mx-auto relative z-10 text-zinc-200">
           {segments.length === 0 && (
-            <span className="text-zinc-700 italic text-center block mt-12">
-              {isGenerating 
-                ? (language === 'vi' ? 'Morgan Hayes đang dệt câu chuyện...' : 'Morgan Hayes is weaving the story...')
-                : (language === 'vi' ? 'Chưa có tín hiệu phát sóng.' : 'No broadcast signal yet.')
-              }
-            </span>
+            thoughtStream ? (
+              <div className="mt-6 p-4 bg-zinc-900/70 border border-zinc-800 rounded-lg shadow-inner shadow-black/30">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-red-400 mb-2 font-mono">
+                  {language === 'vi' ? 'Luồng suy nghĩ DeepSeek' : 'DeepSeek thought stream'}
+                </div>
+                <div className="text-sm text-red-100 font-mono whitespace-pre-wrap leading-6">
+                  {thoughtStream.trim()}
+                </div>
+              </div>
+            ) : (
+              <span className="text-zinc-700 italic text-center block mt-12">
+                {isGenerating
+                  ? (language === 'vi' ? 'Morgan Hayes đang dệt câu chuyện...' : 'Morgan Hayes is weaving the story...')
+                  : (language === 'vi' ? 'Chưa có tín hiệu phát sóng.' : 'No broadcast signal yet.')
+                }
+              </span>
+            )
           )}
 
           {segments.map((segment, index) => {
