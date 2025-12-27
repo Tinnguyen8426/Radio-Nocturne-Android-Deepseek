@@ -689,7 +689,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-12 px-4 md:px-8 bg-black text-gray-200 selection:bg-red-900 selection:text-white">
+    <div className="min-h-screen flex flex-col items-center pt-12 pb-40 px-4 md:px-8 bg-black text-gray-200 selection:bg-red-900 selection:text-white">
       <header className="mb-12 text-center relative group cursor-default w-full max-w-6xl mx-auto flex flex-col items-center">
         <div className="absolute top-0 right-0 md:top-4 md:right-0 z-50">
            <div className="bg-zinc-900 border border-zinc-800 rounded-full p-1 flex items-center shadow-lg">
@@ -797,21 +797,6 @@ const App: React.FC = () => {
                       </button>
                     ))}
                   </div>
-                </div>
-                <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-3 sm:p-4">
-                  <p className="text-xs font-mono uppercase tracking-wide text-zinc-500 mb-2 flex items-center gap-2">
-                    <Radio size={16} className="text-red-500" />
-                    {language === 'vi' ? 'Điều khiển TTS ngay tại đây' : 'Inline TTS controls'}
-                  </p>
-                  <TTSPlayer
-                    ref={ttsRef}
-                    text={state.text}
-                    topic={state.topic}
-                    language={language}
-                    isGenerating={state.status === StoryStatus.GENERATING}
-                    onProgress={setTtsOffset}
-                    startFromOffset={startFromOffset}
-                  />
                 </div>
               </div>
             </div>
@@ -1031,6 +1016,20 @@ const App: React.FC = () => {
         )}
       </div>
       
+      <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3">
+        <div className="max-w-4xl mx-auto">
+          <TTSPlayer
+            ref={ttsRef}
+            text={state.text}
+            topic={state.topic}
+            language={language}
+            isGenerating={state.status === StoryStatus.GENERATING}
+            onProgress={setTtsOffset}
+            startFromOffset={startFromOffset}
+          />
+        </div>
+      </div>
+
       <footer className="mt-16 text-zinc-700 text-xs font-mono text-center">
         <p>{t.footerCaution}</p>
         <p className="mt-2 opacity-50">Powered by DeepSeek</p>

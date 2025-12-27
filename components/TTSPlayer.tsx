@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { Play, Pause, Square, Headphones, Waves } from 'lucide-react';
+import { Play, Pause, Headphones, Waves, SlidersHorizontal, X } from 'lucide-react';
 import { Language } from '../types';
 import { BackgroundTts } from '../services/backgroundTts';
 
@@ -55,6 +55,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   const [waitsForNextChunk, setWaitsForNextChunk] = useState(false);
   const [currentOffset, setCurrentOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [showTuning, setShowTuning] = useState(false);
 
   const isNativeAndroid =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
@@ -673,22 +674,20 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   const progress = text.length === 0 ? 0 : Math.min(100, (currentOffset / text.length) * 100);
 
   return (
-    <div className="w-full bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-950">
-        <div className="flex items-center gap-2 text-zinc-300 text-sm font-mono">
-          <Headphones size={16} className="text-red-500" />
-          <span>LIVE TTS PLAYER</span>
+    <div className="pointer-events-auto w-full bg-zinc-950/95 backdrop-blur-md border border-zinc-900 rounded-t-2xl shadow-2xl">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-zinc-400 font-mono">
+          <Headphones size={14} className="text-red-500" />
+          <span>TTS</span>
+          {waitsForNextChunk && (
+            <span className="flex items-center gap-1 text-red-400 text-[10px]">
+              <Waves className="animate-pulse" size={14} />
+              <span>Tự động nối tiếp</span>
+            </span>
+          )}
         </div>
-        {waitsForNextChunk && (
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-zinc-500">
-            <Waves className="animate-pulse" size={14} />
-            <span>Chờ tín hiệu tiếp theo...</span>
-          </div>
-        )}
-      </div>
 
-      <div className="px-4 py-5 flex flex-col gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 ml-auto">
           <button
             onClick={handleTogglePlayPause}
             className="p-3 rounded-full bg-red-700 hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
@@ -702,56 +701,72 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
             )}
           </button>
           <button
-            onClick={handleStop}
-            disabled={!isPlaying && !isPaused}
-            className="p-3 rounded-full bg-zinc-800 hover:bg-zinc-700 transition disabled:opacity-40"
-            title="Dừng"
+            onClick={() => setShowTuning((prev) => !prev)}
+            className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition"
+            title="Điều chỉnh tốc độ & cao độ"
           >
-            <Square size={18} />
+            {showTuning ? <X size={18} /> : <SlidersHorizontal size={18} />}
           </button>
+        </div>
+      </div>
 
+      <div className="px-4 pb-4">
+        <div className="flex items-center gap-3">
           <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
             <div
               className="h-full bg-red-600 transition-all duration-300"
               style={{ width: `${progress}%` }}
             ></div>
           </div>
+          <span className="text-[11px] text-zinc-500 font-mono w-16 text-right">{progress.toFixed(0)}%</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <label className="flex flex-col gap-1 text-zinc-400">
-            Tốc độ ({rate.toFixed(2)}x)
-            <input
-              type="range"
-              min="0.5"
-              max="2"
-              step="0.05"
-              value={rate}
-              onChange={(e) => setRate(parseFloat(e.target.value))}
-              className="w-full accent-red-600"
-            />
-          </label>
+        {showTuning && (
+          <div className="mt-4 flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <label className="flex flex-col gap-1 text-zinc-400">
+                Tốc độ ({rate.toFixed(2)}x)
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.05"
+                  value={rate}
+                  onChange={(e) => setRate(parseFloat(e.target.value))}
+                  className="w-full accent-red-600"
+                />
+              </label>
 
-          <label className="flex flex-col gap-1 text-zinc-400">
-            Cao độ ({pitch.toFixed(2)})
-            <input
-              type="range"
-              min="0.5"
-              max="2"
-              step="0.05"
-              value={pitch}
-              onChange={(e) => setPitch(parseFloat(e.target.value))}
-              className="w-full accent-red-600"
-            />
-          </label>
-        </div>
+              <label className="flex flex-col gap-1 text-zinc-400">
+                Cao độ ({pitch.toFixed(2)})
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.05"
+                  value={pitch}
+                  onChange={(e) => setPitch(parseFloat(e.target.value))}
+                  className="w-full accent-red-600"
+                />
+              </label>
+            </div>
 
-        <p className="text-[11px] uppercase tracking-widest text-zinc-500">
-          Nhấn đúp bất kỳ đoạn nào trong bản ghi để nhảy tới vị trí đó.
-        </p>
+            <div className="flex items-center justify-between text-[11px] text-zinc-500 uppercase tracking-wide">
+              <span>Nhấn đúp đoạn văn để nhảy tới vị trí đó</span>
+              <button
+                onClick={handleStop}
+                disabled={!isPlaying && !isPaused}
+                className="px-3 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition disabled:opacity-40"
+                title="Dừng phát"
+              >
+                Dừng phát
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && (
-          <div className="text-xs text-red-400 bg-red-900/30 border border-red-900/40 px-3 py-2 rounded">
+          <div className="mt-3 text-xs text-red-400 bg-red-900/30 border border-red-900/40 px-3 py-2 rounded">
             {error}
           </div>
         )}
