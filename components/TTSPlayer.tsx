@@ -67,6 +67,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   const lastTextLengthRef = useRef(text.length);
   const offsetRef = useRef(0);
   const generatingRef = useRef(isGenerating);
+  const prevGeneratingRef = useRef(isGenerating);
   const mapperRef = useRef<number[]>([]);
   const nativeChunkRef = useRef<{
     utteranceId: string;
@@ -140,6 +141,23 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   useEffect(() => {
     generatingRef.current = isGenerating;
   }, [isGenerating]);
+
+  useEffect(() => {
+    const startedGenerating = isGenerating && !prevGeneratingRef.current;
+    prevGeneratingRef.current = isGenerating;
+
+    if (!startedGenerating) return;
+    if (!speechSupported) return;
+
+    // Auto-arm playback so the first chunks stream without extra taps
+    setIsPaused(false);
+    setIsPlaying(true);
+    if (latestTextRef.current.trim().length) {
+      speakFromOffset(offsetRef.current);
+    } else {
+      setWaitsForNextChunk(true);
+    }
+  }, [isGenerating, offsetRef, speakFromOffset, speechSupported]);
 
   useEffect(() => {
     if (!isNativeAndroid) return;
