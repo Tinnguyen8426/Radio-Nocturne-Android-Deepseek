@@ -18,6 +18,7 @@ import {
   listStories,
   saveStory,
   setStoryFavorite,
+  updateStoryProgress,
 } from './services/storyStore';
 import { BackgroundStory } from './services/backgroundStory';
 import { BackgroundTts } from './services/backgroundTts';
@@ -257,11 +258,13 @@ const App: React.FC = () => {
   const [topicInput, setTopicInput] = useState('');
   const ttsRef = useRef<TTSPlayerHandle>(null);
   const [ttsOffset, setTtsOffset] = useState(0);
+  const [startFromOffset, setStartFromOffset] = useState(0);
   const generationControllerRef = useRef<AbortController | null>(null);
   const generationIdRef = useRef(0);
   const lastTopicRef = useRef('');
   const lastUsingAutoTopicRef = useRef(false);
   const generationSeedRef = useRef('');
+  const progressSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stories, setStories] = useState<StoryRecord[]>([]);
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -390,6 +393,8 @@ const App: React.FC = () => {
 
   const handleGenerate = async () => {
     setActiveStoryId(null);
+    setStartFromOffset(0);
+    setTtsOffset(0);
     const trimmedTopic = topicInput.trim();
     const usingAutoTopic = trimmedTopic.length === 0;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
@@ -562,7 +567,11 @@ const App: React.FC = () => {
       language,
       text: state.text,
     })
-      .then((record) => setStories((prev) => [record, ...prev]))
+      .then((record) => {
+        setStories((prev) => [record, ...prev]);
+        setActiveStoryId(record.id);
+        setStartFromOffset(0);
+      })
       .catch((error) => console.error("Failed to save story:", error));
   }, [state.status, state.text, state.topic, language, activeStoryId]);
 
@@ -572,13 +581,15 @@ const App: React.FC = () => {
     setActiveStoryId(story.id);
     setActiveTab('home');
     setTopicInput(story.topic);
+    const offset = Math.max(0, Math.min(story.lastOffset ?? 0, story.text.length));
     setState({
       status: StoryStatus.COMPLETE,
       text: story.text,
       topic: story.topic,
       error: undefined,
     });
-    setTtsOffset(0);
+    setStartFromOffset(offset);
+    setTtsOffset(offset);
   };
 
   const handleToggleFavorite = async (story: StoryRecord) => {
@@ -641,6 +652,33 @@ const App: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!activeStoryId) return;
+    if (progressSaveRef.current) {
+      clearTimeout(progressSaveRef.current);
+    }
+    progressSaveRef.current = setTimeout(() => {
+      const safeOffset = Math.max(0, ttsOffset);
+      const timestamp = new Date().toISOString();
+      setStories((prev) =>
+        prev.map((story) =>
+          story.id === activeStoryId
+            ? { ...story, lastOffset: safeOffset, lastProgressAt: timestamp }
+            : story
+        )
+      );
+      updateStoryProgress(activeStoryId, safeOffset).catch((error) => {
+        console.error('Failed to persist progress:', error);
+      });
+    }, 350);
+
+    return () => {
+      if (progressSaveRef.current) {
+        clearTimeout(progressSaveRef.current);
+      }
+    };
+  }, [ttsOffset, activeStoryId]);
+
   const handleStoryModelChange = async (next: StoryModel) => {
     setStoryModelState(next);
     try {
@@ -651,7 +689,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-12 px-4 md:px-8 bg-black text-gray-200 selection:bg-red-900 selection:text-white">
+    <div className="min-h-screen flex flex-col items-center pt-12 pb-40 px-4 md:px-8 bg-black text-gray-200 selection:bg-red-900 selection:text-white">
       <header className="mb-12 text-center relative group cursor-default w-full max-w-6xl mx-auto flex flex-col items-center">
         <div className="absolute top-0 right-0 md:top-4 md:right-0 z-50">
            <div className="bg-zinc-900 border border-zinc-800 rounded-full p-1 flex items-center shadow-lg">
@@ -691,76 +729,85 @@ const App: React.FC = () => {
       <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 items-start mb-8">
         {activeTab === 'home' && (
           <>
-            <div className="w-full bg-zinc-900 border border-zinc-800 p-6 rounded-lg shadow-xl relative overflow-hidden">
+            <div className="w-full bg-zinc-900 border border-zinc-800 p-5 sm:p-6 rounded-lg shadow-xl relative overflow-hidden">
               <div className="absolute top-0 right-0 p-2 opacity-20"><Radio size={48} /></div>
-              <label className="block text-xs font-mono text-zinc-500 uppercase mb-2">{t.labelSubject}</label>
-              <div className="flex flex-col gap-3">
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleRandomTopic}
-                    disabled={state.status === StoryStatus.GENERATING || randomizingTopic}
-                    className="px-4 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0"
-                    title={t.randomBtnTitle}
-                  >
-                    <Dices size={20} />
-                  </button>
-                  <input type="text" value={topicInput} onChange={(e) => setTopicInput(e.target.value)} placeholder={t.placeholderInput} className="flex-1 min-w-0 bg-zinc-950 border border-zinc-700 text-zinc-100 p-3 rounded-md focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-900 transition-all font-mono placeholder-zinc-700 text-sm" disabled={state.status === StoryStatus.GENERATING} onKeyDown={(e) => e.key === 'Enter' && handleGenerate()} />
-                </div>
-                <p className="text-[11px] font-mono uppercase tracking-wide text-zinc-500">{t.autoTopicHint}</p>
-                <div className="flex gap-2 w-full">
-                  <button
-                    onClick={handleGenerate}
-                    disabled={state.status === StoryStatus.GENERATING}
-                    className={`flex-1 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all ${
-                      state.status === StoryStatus.GENERATING
-                        ? 'bg-zinc-800 text-zinc-500 cursor-wait'
-                        : 'bg-red-700 hover:bg-red-600 text-white shadow-lg hover:shadow-red-900/50'
-                    }`}
-                  >
-                    {state.status === StoryStatus.GENERATING ? t.tuning : t.broadcast}
-                  </button>
-                  {state.status === StoryStatus.GENERATING && (
+              <div className="grid gap-4 lg:grid-cols-[1.3fr,1fr] items-start">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <label className="text-xs font-mono text-zinc-500 uppercase">{t.labelSubject}</label>
+                    <span className="text-[10px] text-zinc-600 font-mono uppercase tracking-wide">{t.suggested}</span>
+                  </div>
+                  <div className="flex gap-2 flex-col sm:flex-row">
                     <button
-                      onClick={handleStopBroadcast}
-                      className="px-4 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700"
+                      onClick={handleRandomTopic}
+                      disabled={state.status === StoryStatus.GENERATING || randomizingTopic}
+                      className="px-4 py-3 sm:py-0 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0 flex items-center justify-center"
+                      title={t.randomBtnTitle}
                     >
-                      {t.stop}
+                      <Dices size={20} />
                     </button>
-                  )}
-                  {state.status === StoryStatus.PAUSED && (
+                    <input
+                      type="text"
+                      value={topicInput}
+                      onChange={(e) => setTopicInput(e.target.value)}
+                      placeholder={t.placeholderInput}
+                      className="flex-1 min-w-0 bg-zinc-950 border border-zinc-700 text-zinc-100 p-3 rounded-md focus:outline-none focus:border-red-700 focus:ring-1 focus:ring-red-900 transition-all font-mono placeholder-zinc-700 text-sm"
+                      disabled={state.status === StoryStatus.GENERATING}
+                      onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+                    />
+                  </div>
+                  <p className="text-[11px] font-mono uppercase tracking-wide text-zinc-500">{t.autoTopicHint}</p>
+                  <div className="flex gap-2 w-full flex-wrap">
                     <button
-                      onClick={handleResumeBroadcast}
-                      className="px-4 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all bg-red-700 hover:bg-red-600 text-white shadow-lg hover:shadow-red-900/50"
+                      onClick={handleGenerate}
+                      disabled={state.status === StoryStatus.GENERATING}
+                      className={`flex-1 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all ${
+                        state.status === StoryStatus.GENERATING
+                          ? 'bg-zinc-800 text-zinc-500 cursor-wait'
+                          : 'bg-red-700 hover:bg-red-600 text-white shadow-lg hover:shadow-red-900/50'
+                      }`}
                     >
-                      {t.resume}
+                      {state.status === StoryStatus.GENERATING ? t.tuning : t.broadcast}
                     </button>
-                  )}
-                </div>
-              </div>
-              <div className="mt-4">
-                <p className="text-[10px] text-zinc-600 mb-2 font-mono uppercase tracking-wide">{t.suggested}</p>
-                <div className="flex flex-wrap gap-2">
-                  {GENRE_PROMPTS[language].map((prompt) => (<button key={prompt} onClick={() => setTopicInput(prompt)} className="px-2 py-1 bg-zinc-950 border border-zinc-800 text-zinc-400 text-[10px] hover:border-red-900 hover:text-red-400 transition-colors">{prompt}</button>))}
+                    {state.status === StoryStatus.GENERATING && (
+                      <button
+                        onClick={handleStopBroadcast}
+                        className="px-4 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700"
+                      >
+                        {t.stop}
+                      </button>
+                    )}
+                    {state.status === StoryStatus.PAUSED && (
+                      <button
+                        onClick={handleResumeBroadcast}
+                        className="px-4 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all bg-red-700 hover:bg-red-600 text-white shadow-lg hover:shadow-red-900/50"
+                      >
+                        {t.resume}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {GENRE_PROMPTS[language].map((prompt) => (
+                      <button
+                        key={prompt}
+                        onClick={() => setTopicInput(prompt)}
+                        className="px-2 py-1 bg-zinc-950 border border-zinc-800 text-zinc-400 text-[10px] hover:border-red-900 hover:text-red-400 transition-colors rounded"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-            
-            <StoryDisplay 
-              text={state.text} 
-              isGenerating={state.status === StoryStatus.GENERATING} 
-              topic={state.topic} 
+
+            <StoryDisplay
+              text={state.text}
+              isGenerating={state.status === StoryStatus.GENERATING}
+              topic={state.topic}
               language={language}
               currentOffset={ttsOffset}
               onJumpRequest={(offset) => ttsRef.current?.jumpToOffset(offset)}
-            />
-
-            <TTSPlayer 
-              ref={ttsRef}
-              text={state.text}
-              topic={state.topic}
-              language={language}
-              isGenerating={state.status === StoryStatus.GENERATING}
-              onProgress={setTtsOffset}
             />
 
             {state.status === StoryStatus.PAUSED && (
@@ -969,6 +1016,23 @@ const App: React.FC = () => {
         )}
       </div>
       
+      <div
+        className="fixed left-0 right-0 bottom-0 z-40 px-3"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 16px) + 12px)' }}
+      >
+        <div className="max-w-4xl mx-auto">
+          <TTSPlayer
+            ref={ttsRef}
+            text={state.text}
+            topic={state.topic}
+            language={language}
+            isGenerating={state.status === StoryStatus.GENERATING}
+            onProgress={setTtsOffset}
+            startFromOffset={startFromOffset}
+          />
+        </div>
+      </div>
+
       <footer className="mt-16 text-zinc-700 text-xs font-mono text-center">
         <p>{t.footerCaution}</p>
         <p className="mt-2 opacity-50">Powered by DeepSeek</p>
