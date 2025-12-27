@@ -64,6 +64,9 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
       - name: Build APK (Debug)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'debug' || github.event_name != 'workflow_dispatch'
         run: |
