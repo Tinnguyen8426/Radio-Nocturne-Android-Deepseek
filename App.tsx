@@ -711,15 +711,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleTemperatureChange = async (value: number) => {
-    setStoryTemperature(value);
-    try {
-      await setStoryTemperature(value);
-    } catch (error) {
-      console.error("Failed to save temperature:", error);
-    }
-  };
-
   return (
     <div className="min-h-screen flex flex-col items-center pt-12 pb-40 px-4 md:px-8 bg-black text-gray-200 selection:bg-red-900 selection:text-white">
       <header className="mb-12 text-center relative group cursor-default w-full max-w-6xl mx-auto flex flex-col items-center">
