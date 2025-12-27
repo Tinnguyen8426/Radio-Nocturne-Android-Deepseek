@@ -6,7 +6,7 @@ import { StoryStatus, GenerationState, GENRE_PROMPTS, Language, StoryRecord } fr
 import StoryDisplay from './components/StoryDisplay';
 import TTSPlayer, { TTSPlayerHandle } from './components/TTSPlayer';
 import StoryLibrary from './components/StoryLibrary';
-import { Radio, AlertCircle, Dices } from 'lucide-react';
+import { AlertCircle, ChevronDown, Dices, Loader2, Radio } from 'lucide-react';
 import {
   clearApiKey,
   getStoredApiKey,
@@ -278,6 +278,7 @@ const App: React.FC = () => {
     DEFAULT_STORY_PERSONALIZATION
   );
   const [randomizingTopic, setRandomizingTopic] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const aiTopicCacheRef = useRef<string[]>([]);
   const isNativeAndroid =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
@@ -735,17 +736,8 @@ const App: React.FC = () => {
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <label className="text-xs font-mono text-zinc-500 uppercase">{t.labelSubject}</label>
-                    <span className="text-[10px] text-zinc-600 font-mono uppercase tracking-wide">{t.suggested}</span>
                   </div>
-                  <div className="flex gap-2 flex-col sm:flex-row">
-                    <button
-                      onClick={handleRandomTopic}
-                      disabled={state.status === StoryStatus.GENERATING || randomizingTopic}
-                      className="px-4 py-3 sm:py-0 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0 flex items-center justify-center"
-                      title={t.randomBtnTitle}
-                    >
-                      <Dices size={20} />
-                    </button>
+                  <div className="flex gap-2 flex-col sm:flex-row items-stretch">
                     <input
                       type="text"
                       value={topicInput}
@@ -755,8 +747,43 @@ const App: React.FC = () => {
                       disabled={state.status === StoryStatus.GENERATING}
                       onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
                     />
+                    <button
+                      onClick={handleRandomTopic}
+                      disabled={state.status === StoryStatus.GENERATING || randomizingTopic}
+                      className="px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0 flex items-center justify-center"
+                      title={t.randomBtnTitle}
+                      aria-busy={randomizingTopic}
+                    >
+                      {randomizingTopic ? <Loader2 className="h-5 w-5 animate-spin" /> : <Dices size={20} />}
+                    </button>
                   </div>
                   <p className="text-[11px] font-mono uppercase tracking-wide text-zinc-500">{t.autoTopicHint}</p>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => setShowSuggestions((prev) => !prev)}
+                      className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md text-[10px] font-mono uppercase tracking-wide text-zinc-400 hover:border-red-800 hover:text-red-400 transition"
+                      aria-expanded={showSuggestions}
+                    >
+                      <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wide">{t.suggested}</span>
+                      <ChevronDown
+                        size={14}
+                        className={`transition-transform ${showSuggestions ? 'rotate-180 text-red-400' : 'text-zinc-600'}`}
+                      />
+                    </button>
+                    {showSuggestions && (
+                      <div className="flex flex-wrap gap-2">
+                        {GENRE_PROMPTS[language].map((prompt) => (
+                          <button
+                            key={prompt}
+                            onClick={() => setTopicInput(prompt)}
+                            className="px-2 py-1 bg-zinc-950 border border-zinc-800 text-zinc-400 text-[10px] hover:border-red-900 hover:text-red-400 transition-colors rounded"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex gap-2 w-full flex-wrap">
                     <button
                       onClick={handleGenerate}
@@ -785,17 +812,6 @@ const App: React.FC = () => {
                         {t.resume}
                       </button>
                     )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {GENRE_PROMPTS[language].map((prompt) => (
-                      <button
-                        key={prompt}
-                        onClick={() => setTopicInput(prompt)}
-                        className="px-2 py-1 bg-zinc-950 border border-zinc-800 text-zinc-400 text-[10px] hover:border-red-900 hover:text-red-400 transition-colors rounded"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
                   </div>
                 </div>
               </div>
