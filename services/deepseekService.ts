@@ -7,6 +7,7 @@ import {
   getAllowBackgroundGeneration,
   getStoryModel,
   getStoryPersonalization,
+  getStoryTemperature,
   TARGET_MAX_OFFSET,
   TARGET_MAX_WORDS,
   TARGET_MIN_OFFSET,
@@ -26,7 +27,8 @@ const BASE_URL = (
 ).replace(/\/$/, "");
 const DEFAULT_MAX_TOKENS = Number(import.meta.env.VITE_DEEPSEEK_MAX_TOKENS || 8192);
 const TOPIC_MODEL = "deepseek-chat";
-const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.6);
+// STORY_TEMPERATURE is now loaded from settings, keeping this as fallback for native
+const DEFAULT_STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.6);
 const STORY_TOP_P = Number(import.meta.env.VITE_STORY_TOP_P || 0.95);
 const STORY_TIMEOUT_MS = Number(import.meta.env.VITE_STORY_TIMEOUT_MS || 12 * 60 * 1000);
 const STORY_CONTEXT_WORDS = Number(import.meta.env.VITE_STORY_CONTEXT_WORDS || 320);
@@ -791,7 +793,7 @@ export const streamStoryWithControls = async (
         apiKey,
         baseUrl: BASE_URL,
         model: storyModel,
-        temperature: STORY_TEMPERATURE,
+        temperature: storyTemperature,
         topP: STORY_TOP_P,
         maxTokens: Math.max(4096, DEFAULT_MAX_TOKENS),
         storyMinWords: lengthConfig.minWords,
@@ -855,7 +857,7 @@ export const streamStoryWithControls = async (
     try {
       await streamChatCompletion(
         messages,
-        { temperature: STORY_TEMPERATURE, maxTokens, signal: controller.signal, model: storyModel },
+        { temperature: storyTemperature, maxTokens, signal: controller.signal, model: storyModel },
         apiKey,
         (chunk) => {
           if (!chunk || signatureReached) return;

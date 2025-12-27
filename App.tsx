@@ -27,6 +27,7 @@ import {
   getAllowBackgroundGeneration,
   getStoryPersonalization,
   getStoryModel,
+  getStoryTemperature,
   TARGET_MAX_OFFSET,
   TARGET_MAX_WORDS,
   TARGET_MIN_OFFSET,
@@ -36,6 +37,7 @@ import {
   setStoryPersonalization,
   setReuseStoryCache,
   setStoryModel,
+  setStoryTemperature,
 } from './services/settingsStore';
 import type { NarrativeStyle, StoryModel, StoryPersonalization } from './services/settingsStore';
 
@@ -152,6 +154,10 @@ const TRANSLATIONS = {
     ttsSettings: "TTS Settings",
     ttsSettingsHint: "Choose Google or system voice.",
     ttsInstall: "Install TTS data",
+    temperatureLabel: "Story Generation Temperature",
+    temperatureHint: "Adjust creativity and randomness. Low = more consistent, High = more diverse.",
+    temperatureLow: "Low (0.1)",
+    temperatureHigh: "High (2.0)",
   }
 };
 
@@ -275,6 +281,7 @@ const App: React.FC = () => {
   const [backgroundSupported, setBackgroundSupported] = useState(false);
   const [reuseCache, setReuseCache] = useState(false);
   const [storyModel, setStoryModelState] = useState<StoryModel>('deepseek-reasoner');
+  const [storyTemperature, setStoryTemperature] = useState(1.6);
   const [personalization, setPersonalization] = useState<StoryPersonalization>(
     DEFAULT_STORY_PERSONALIZATION
   );
@@ -330,6 +337,7 @@ const App: React.FC = () => {
           storedPersonalization,
           storedReuseCache,
           storedStoryModel,
+          storedTemperature,
         ] = await Promise.all([
           listStories(),
           getStoredApiKey(),
@@ -337,6 +345,7 @@ const App: React.FC = () => {
           getStoryPersonalization(),
           getReuseStoryCache(),
           getStoryModel(),
+          getStoryTemperature(),
         ]);
         if (!alive) return;
         setStories(storedStories);
@@ -344,6 +353,7 @@ const App: React.FC = () => {
         setPersonalization(storedPersonalization);
         setReuseCache(storedReuseCache);
         setStoryModelState(storedStoryModel);
+        setStoryTemperature(storedTemperature);
         if (storedKey) {
           setApiKeyInput(storedKey);
           setApiKeyStatus('stored');
@@ -692,6 +702,24 @@ const App: React.FC = () => {
     }
   };
 
+  const handleTemperatureChange = async (value: number) => {
+    setStoryTemperature(value);
+    try {
+      await setStoryTemperature(value);
+    } catch (error) {
+      console.error("Failed to save temperature:", error);
+    }
+  };
+
+  const handleTemperatureChange = async (value: number) => {
+    setStoryTemperature(value);
+    try {
+      await setStoryTemperature(value);
+    } catch (error) {
+      console.error("Failed to save temperature:", error);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col items-center pt-12 pb-40 px-4 md:px-8 bg-black text-gray-200 selection:bg-red-900 selection:text-white">
       <header className="mb-12 text-center relative group cursor-default w-full max-w-6xl mx-auto flex flex-col items-center">
@@ -947,6 +975,26 @@ const App: React.FC = () => {
                     <option value="deepseek-chat">{t.storyModelChat}</option>
                   </select>
                   <span className="text-xs text-zinc-500">{t.storyModelHint}</span>
+                </label>
+              </div>
+              <div className="mt-5 pt-5 border-t border-zinc-800">
+                <label className="flex flex-col gap-2 text-zinc-400">
+                  <span className="text-sm text-zinc-200">{t.temperatureLabel}</span>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2.0"
+                    step="0.05"
+                    value={storyTemperature}
+                    onChange={(e) => handleTemperatureChange(Number(e.target.value))}
+                    className="w-full accent-red-600"
+                  />
+                  <div className="flex justify-between text-[11px] text-zinc-500">
+                    <span>{t.temperatureLow}</span>
+                    <span className="font-mono">{storyTemperature.toFixed(2)}</span>
+                    <span>{t.temperatureHigh}</span>
+                  </div>
+                  <span className="text-[11px] text-zinc-500">{t.temperatureHint}</span>
                 </label>
               </div>
             </div>
