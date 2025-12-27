@@ -69,8 +69,13 @@ public class BackgroundStoryPlugin extends Plugin implements BackgroundStoryServ
             call.reject("API key is missing");
             return;
         }
-        pendingConfig = config;
-        ensureService();
+        if (bound && service != null) {
+            service.startGeneration(config);
+            pendingConfig = null;
+        } else {
+            pendingConfig = config;
+            ensureService();
+        }
         call.resolve();
     }
 
