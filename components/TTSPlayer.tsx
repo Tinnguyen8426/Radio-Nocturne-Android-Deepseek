@@ -440,13 +440,34 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     const hasNewContent = text.length > lastTextLengthRef.current;
     const wasWaitingForChunk = waitsForNextChunk && hasNewContent;
     const noActiveSpeech = isNativeAndroid ? !nativeSpeakingRef.current : !utteranceRef.current;
+    
+    // Check if we're near the end of current text and should continue with new content
+    const currentTextLength = latestTextRef.current.length;
+    const isNearEnd = currentTextLength > 0 && offsetRef.current >= Math.max(0, currentTextLength - 100);
 
     if (wasWaitingForChunk) {
       setWaitsForNextChunk(false);
     }
 
-    if (hasNewContent && generatingRef.current && !isPaused && (!isPlaying || wasWaitingForChunk || noActiveSpeech)) {
-      speakFromOffset(offsetRef.current);
+    // During generation, ensure TTS continues when new content arrives
+    if (generatingRef.current && !isPaused && hasNewContent) {
+      // If not playing at all, start playing
+      if (!isPlaying) {
+        setIsPlaying(true);
+        speakFromOffset(offsetRef.current);
+      }
+      // If waiting for next chunk, continue
+      else if (wasWaitingForChunk) {
+        speakFromOffset(offsetRef.current);
+      }
+      // If no active speech (finished speaking), continue
+      else if (noActiveSpeech) {
+        speakFromOffset(offsetRef.current);
+      }
+      // If near end of current text, continue with new content
+      else if (isNearEnd) {
+        speakFromOffset(offsetRef.current);
+      }
     }
 
     lastTextLengthRef.current = text.length;
