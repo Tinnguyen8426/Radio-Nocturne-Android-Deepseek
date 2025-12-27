@@ -26,7 +26,8 @@ const BASE_URL = (
 ).replace(/\/$/, "");
 const DEFAULT_MAX_TOKENS = Number(import.meta.env.VITE_DEEPSEEK_MAX_TOKENS || 8192);
 const TOPIC_MODEL = "deepseek-chat";
-const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.5);
+const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.6);
+const STORY_TOP_P = Number(import.meta.env.VITE_STORY_TOP_P || 0.95);
 const STORY_TIMEOUT_MS = Number(import.meta.env.VITE_STORY_TIMEOUT_MS || 12 * 60 * 1000);
 const STORY_CONTEXT_WORDS = Number(import.meta.env.VITE_STORY_CONTEXT_WORDS || 320);
 const STORY_MAX_PASSES = Number(import.meta.env.VITE_STORY_MAX_PASSES || 6);
@@ -231,6 +232,8 @@ const STORY_INTRO_MOODS = [
 ];
 
 let lastFlavorKey: string | null = null;
+const flavorHistoryRef: string[] = [];
+const MAX_FLAVOR_HISTORY = 20;
 
 const createSeededRandom = (seed: number) => {
   let state = seed >>> 0;
@@ -256,6 +259,8 @@ const selectStoryFlavor = (seedText?: string): StoryFlavor => {
   const random = seedText ? createSeededRandom(hashString(seedText)) : Math.random;
   let flavor: StoryFlavor;
   let attempts = 0;
+  const maxAttempts = seedText ? 10 : 20;
+  
   do {
     flavor = {
       engine: pickFrom(STORY_ENGINES, random),
@@ -269,16 +274,30 @@ const selectStoryFlavor = (seedText?: string): StoryFlavor => {
       keyMotif: pickFrom(STORY_MOTIFS, random),
       introMood: pickFrom(STORY_INTRO_MOODS, random),
     };
+    
+    const flavorKey = `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`;
+    
     attempts += 1;
-  } while (
-    !seedText &&
-    attempts < 6 &&
-    lastFlavorKey ===
-      `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`
-  );
-  if (!seedText) {
-    lastFlavorKey = `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`;
-  }
+    
+    // Check với cả history, không chỉ last flavor
+    if (!seedText && flavorHistoryRef.includes(flavorKey)) {
+      continue; // Thử lại với flavor khác
+    }
+    
+    // Nếu không trùng hoặc đã thử quá nhiều lần, break
+    if (seedText || !flavorHistoryRef.includes(flavorKey) || attempts >= maxAttempts) {
+      if (!seedText) {
+        flavorHistoryRef.push(flavorKey);
+        // Giữ chỉ MAX_FLAVOR_HISTORY flavor gần nhất
+        if (flavorHistoryRef.length > MAX_FLAVOR_HISTORY) {
+          flavorHistoryRef.shift();
+        }
+        lastFlavorKey = flavorKey;
+      }
+      break;
+    }
+  } while (attempts < maxAttempts);
+  
   return flavor;
 };
 
@@ -313,10 +332,26 @@ const buildCacheAvoidanceBlock = (anchors: string[]) => {
   if (!anchors.length) return "";
   const lines = anchors.map((anchor, index) => `(${index + 1}) ${anchor}`).join("\n");
   return `
-CACHE DIVERSITY ANCHORS (MANDATORY)
+CACHE DIVERSITY ANCHORS (MANDATORY — CRITICAL FOR UNIQUENESS)
 - These are brief anchors from previously generated stories stored on-device.
 - Do NOT reuse their premises, anomalies, reveal structures, key motifs, or endings.
+- Do NOT use similar protagonist roles, settings, or evidence origins.
+- Do NOT follow the same narrative arc or pacing structure.
+- If a previous story involved [X], your story must involve something fundamentally different from [X].
+- Vary the emotional tone: if previous was clinical, make this one intimate; if previous was paranoid, make this one elegiac.
+- Vary the scale: if previous was personal, make this one systemic; if previous was local, make this one cosmic.
+- The goal is ZERO structural similarity to any previous story.
 ${lines}
+
+ANTI-PATTERN CHECKLIST (MANDATORY)
+Before writing, verify your story does NOT:
+1. Use the same anomaly type as any anchor above
+2. Use the same reveal method as any anchor above  
+3. Use the same ending mode as any anchor above
+4. Follow the same plot structure as any anchor above
+5. Use similar protagonist role/setting combination as any anchor above
+
+If your story would match ANY of the above, you MUST change fundamental elements until it is unique.
 `.trim();
 };
 
@@ -345,6 +380,7 @@ const streamChatCompletion = async (
       model,
       messages,
       temperature,
+      top_p: STORY_TOP_P,
       max_tokens: maxTokens,
       stream: true,
     }),
@@ -437,6 +473,19 @@ USER INPUT (TOPIC OR STORY DIRECTION):
 NO SPECIFIC TOPIC OR DIRECTION PROVIDED.
 Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Cosmic Horror, Conspiracy Thriller, Weird fiction, or Uncanny realism.
 Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.
+
+CRITICAL: The topic/premise you choose MUST be fundamentally different from:
+- Any topic in the cache anchors above
+- Any common horror trope that appears frequently
+- Any premise that would lead to a similar structure as previous stories
+
+Topic selection guidelines:
+- Vary the "entry point": some stories start with found evidence, others start with personal experience, others start with second-hand accounts
+- Vary the "stakes": some stories are about survival, others about truth, others about identity, others about reality itself
+- Vary the "scale": some stories are intimate/personal, others are systemic/societal, others are cosmic/existential
+- Avoid: "person discovers secret organization" (too common), "person gets recruited" (too common), "person finds out they're in simulation" (too common)
+
+Choose a premise that feels fresh and has not been explored in the cache anchors.
 `.trim();
 
   return `
@@ -514,10 +563,37 @@ PRESENT-DAY TRUTH (MANDATORY)
 DIVERSITY REQUIREMENTS (MANDATORY — AVOID REPETITION)
 - Use the following randomized selections exactly as written (do NOT override them):
 ${flavorSection}${cacheSection}
-- Do NOT default to the template: “a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased.”
-- No direct recruitment offer, no “sign this or die” ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.
-- Include at least one mid-story reversal that is NOT “they contacted me to recruit me.”
+- Do NOT default to the template: "a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased."
+- No direct recruitment offer, no "sign this or die" ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.
+- Include at least one mid-story reversal that is NOT "they contacted me to recruit me."
 - Avoid spy-thriller clichés and on-the-nose surveillance tropes; keep menace subtle and uncanny.
+
+UNIQUENESS MANDATORY (CRITICAL)
+- This story MUST be structurally and thematically distinct from any previous story.
+- Do NOT reuse:
+  * The same type of anomaly (if previous was "missing door", use different anomaly type)
+  * The same reveal structure (if previous was "leaked minutes", use different reveal method)
+  * The same ending pattern (if previous was "memory overwrite", use different ending)
+  * The same protagonist archetype (vary roles, backgrounds, motivations)
+  * The same setting type (if previous was apartment, use different setting category)
+  * The same key motif pattern (if previous was "symbol drawn", use different motif type)
+- Vary the pacing: some stories should be slow-burn investigations, others should be rapid escalation
+- Vary the scope: some stories are personal/isolated, others involve wider implications
+- Vary the resolution clarity: some stories end with clear answers, others remain ambiguous
+- If the topic is similar to a previous story, you MUST find a completely different angle, different anomaly mechanism, different truth structure
+- Think: "What has NOT been done before in this exact combination?"
+
+STRUCTURAL DIVERSITY (MANDATORY)
+- Vary story structure: some stories should be linear chronological, others should be fragmented/non-linear
+- Vary evidence presentation: some stories reveal through documents, others through experiences, others through conversations
+- Vary the "uncanny" mechanism: 
+  * Some stories: reality glitch (things don't add up)
+  * Some stories: supernatural intrusion (something breaks through)
+  * Some stories: social conspiracy (systematic manipulation)
+  * Some stories: cosmic horror (scale beyond comprehension)
+  * Some stories: psychological uncanny (mind/identity distortion)
+- Vary the protagonist's agency: some protagonists are active investigators, others are passive witnesses, others are unwilling participants
+- Vary the "truth" revelation: some stories reveal a clear explanation, others leave it ambiguous, others reveal something that makes it worse
 
 NO SOUND DESCRIPTION / NO SFX
 - Do not write bracketed sound cues like “[static]”, “[tiếng mưa]”.
@@ -535,6 +611,20 @@ SPECIAL REQUIREMENTS
 ${OUTRO_SIGNATURE}
 
 ${topicDirective}
+
+FINAL UNIQUENESS VERIFICATION (MANDATORY)
+Before outputting, mentally verify:
+1. This story's core anomaly is different from any cache anchor
+2. This story's reveal method is different from any cache anchor  
+3. This story's ending mode is different from any cache anchor
+4. This story's protagonist role/setting combination is unique
+5. This story's narrative structure (linear/fragmented/etc.) is varied
+6. This story's emotional tone is distinct
+7. This story's "truth" mechanism is different
+
+If ANY of the above would match a cache anchor, you MUST modify fundamental elements until the story is unique.
+
+The goal: a reader who has read previous stories should immediately recognize this as a completely different story, not a variation of a previous one.
 
 BEGIN NOW. Output only the story (no outline, no meta commentary).
 `.trim();
@@ -632,6 +722,13 @@ STYLE & OUTPUT FORMAT
 ${flavorSection}${cacheSection}
 ${personalizationSection}
 
+UNIQUENESS MANDATORY (CRITICAL — CONTINUATION)
+- Even though you are continuing an existing story, ensure the continuation maintains uniqueness.
+- Do NOT fall into patterns from cache anchors when developing the story further.
+- Vary the escalation: if previous parts were slow, accelerate; if previous were fast, slow down.
+- Introduce new elements that haven't appeared in cache anchors.
+- The continuation should feel fresh, not like a rehash of previous story structures.
+
 TECH MINIMIZATION
 - Keep technology references minimal and mundane, only when truly necessary.
 - Keep the final truth grounded in present-day reality; avoid archival/system assimilation endings.
@@ -695,6 +792,7 @@ export const streamStoryWithControls = async (
         baseUrl: BASE_URL,
         model: storyModel,
         temperature: STORY_TEMPERATURE,
+        topP: STORY_TOP_P,
         maxTokens: Math.max(4096, DEFAULT_MAX_TOKENS),
         storyMinWords: lengthConfig.minWords,
         storyTargetWords: lengthConfig.targetWords,
@@ -853,6 +951,7 @@ const streamStoryNative = async (
     baseUrl: string;
     model: string;
     temperature: number;
+    topP: number;
     maxTokens: number;
     storyMinWords: number;
     storyTargetWords: number;
@@ -922,6 +1021,7 @@ const streamStoryNative = async (
       baseUrl: config.baseUrl,
       model: config.model,
       temperature: config.temperature,
+      topP: config.topP,
       maxTokens: config.maxTokens,
       storyMinWords: config.storyMinWords,
       storyTargetWords: config.storyTargetWords,
