@@ -204,6 +204,8 @@ public class BackgroundStoryService extends Service {
             .url(config.baseUrl + "/chat/completions")
             .addHeader("Authorization", "Bearer " + config.apiKey)
             .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .addHeader("Cache-Control", "no-cache")
             .post(body)
             .build();
 

@@ -65,6 +65,9 @@ export default async function handler(event: HandlerEvent): Promise<Response> {
     outboundHeaders.set(key, value);
   });
   outboundHeaders.set("Authorization", `Bearer ${apiKey}`);
+  if (!outboundHeaders.has("accept")) {
+    outboundHeaders.set("accept", "text/event-stream");
+  }
   if (!outboundHeaders.has("content-type")) {
     outboundHeaders.set("content-type", "application/json");
   }
@@ -78,8 +81,11 @@ export default async function handler(event: HandlerEvent): Promise<Response> {
 
     const responseHeaders = new Headers();
     upstream.headers.forEach((value, key) => {
+      if (key.toLowerCase() === "content-length") return;
       responseHeaders.set(key, value);
     });
+    responseHeaders.set("Cache-Control", "no-store");
+    responseHeaders.set("Access-Control-Allow-Origin", "*");
 
     return new Response(upstream.body, {
       status: upstream.status,

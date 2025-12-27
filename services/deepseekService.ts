@@ -337,6 +337,8 @@ const streamChatCompletion = async (
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
     },
     signal,
     body: JSON.stringify({
