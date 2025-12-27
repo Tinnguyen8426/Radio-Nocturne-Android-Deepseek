@@ -32,5 +32,7 @@ dist-ssr
 .netlify
 
 # Android release signing
+android/keystore/*.jks
 android/keystore/*.keystore
+android/keystore/*.jks.b64
 android/keystore/keystore.properties

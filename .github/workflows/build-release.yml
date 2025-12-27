@@ -1,0 +1,145 @@
+name: Build Signed Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag'
+        required: false
+        type: string
+
+env:
+  NODE_VERSION: '18'
+  GRADLE_VERSION: '8.0'
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Build web assets
+        run: npm run build
+        env:
+          VITE_DEEPSEEK_BASE_URL: ${{ secrets.VITE_DEEPSEEK_BASE_URL }}
+          VITE_DEEPSEEK_MAX_TOKENS: ${{ secrets.VITE_DEEPSEEK_MAX_TOKENS }}
+          VITE_STORY_TEMPERATURE: ${{ secrets.VITE_STORY_TEMPERATURE }}
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Setup keystore
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > android/keystore/keystore.jks
+          cat > android/keystore/keystore.properties << EOF
+          storeFile=keystore.jks
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
+      - name: Build signed release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease
+
+      - name: Build signed release Bundle
+        run: |
+          cd android
+          ./gradlew bundleRelease
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          release_name: Release ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release APK
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./android/app/build/outputs/apk/release/app-release.apk
+          asset_name: Radio-Nocturne-${{ steps.version.outputs.version }}.apk
+          asset_content_type: application/vnd.android.package-archive
+
+      - name: Upload Release Bundle
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./android/app/build/outputs/bundle/release/app-release.aab
+          asset_name: Radio-Nocturne-${{ steps.version.outputs.version }}.aab
+          asset_content_type: application/octet-stream
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-${{ steps.version.outputs.version }}
+          path: |
+            android/app/build/outputs/apk/release/
+            android/app/build/outputs/bundle/release/
+          retention-days: 90
+
+  notify-success:
+    needs: build-release
+    runs-on: ubuntu-latest
+    if: success()
+    
+    steps:
+      - name: Success notification
+        run: echo "✅ Release build completed successfully and uploaded to GitHub Releases"
+
+  notify-failure:
+    needs: build-release
+    runs-on: ubuntu-latest
+    if: failure()
+    
+    steps:
+      - name: Failure notification
+        run: |
+          echo "❌ Release build failed"
+          exit 1
