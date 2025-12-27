@@ -50,7 +50,7 @@ public class BackgroundStoryService extends Service {
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
     private final IBinder binder = new LocalBinder();
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     private OkHttpClient client;
@@ -98,7 +98,7 @@ public class BackgroundStoryService extends Service {
         return currentFullText;
     }
 
-    public void startGeneration(GenerationConfig config) {
+    public synchronized void startGeneration(GenerationConfig config) {
         cancel();
         cancelled.set(false);
         ensureFlavor(config);
@@ -108,12 +108,15 @@ public class BackgroundStoryService extends Service {
         executor.submit(() -> runGeneration(config));
     }
 
-    public void cancel() {
+    public synchronized void cancel() {
         cancelled.set(true);
         running = false;
         if (activeCall != null) {
             activeCall.cancel();
         }
+        releaseWakeLock();
+        stopForegroundCompat();
+        restartExecutor();
     }
 
     private void runGeneration(GenerationConfig config) {
@@ -181,6 +184,13 @@ public class BackgroundStoryService extends Service {
             wakeLock.release();
         }
         wakeLock = null;
+    }
+
+    private void restartExecutor() {
+        if (executor != null && !executor.isShutdown()) {
+            executor.shutdownNow();
+        }
+        executor = Executors.newSingleThreadExecutor();
     }
 
     private String runPass(GenerationConfig config, String prompt) throws IOException {
