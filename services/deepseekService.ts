@@ -235,7 +235,17 @@ const STORY_INTRO_MOODS = [
 
 let lastFlavorKey: string | null = null;
 const flavorHistoryRef: string[] = [];
-const MAX_FLAVOR_HISTORY = 20;
+const MAX_FLAVOR_HISTORY = 10;
+
+// Enhanced history tracking for story elements
+const storyElementsHistory: Array<{
+  protagonist: string;
+  setting: string;
+  anomaly: string;
+  motif: string;
+  timestamp: number;
+}> = [];
+const MAX_ELEMENTS_HISTORY = 8;
 
 const createSeededRandom = (seed: number) => {
   let state = seed >>> 0;
@@ -257,11 +267,122 @@ const hashString = (value: string) => {
 const pickFrom = <T,>(items: T[], random: () => number) =>
   items[Math.floor(random() * items.length)];
 
+const extractStoryElements = (text: string) => {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (!lines.length) return { protagonist: '', setting: '', anomaly: '', motif: '' };
+  
+  const fullText = lines.join(' ').toLowerCase();
+  
+  // Detect protagonist (common patterns)
+  const protagonistPatterns = [
+    /tôi là (\w+\s*\w*)/i,
+    /tôi tên là (\w+\s*\w*)/i,
+    /tôi, (\w+\s*\w*),/i,
+  ];
+  
+  let protagonist = '';
+  for (const pattern of protagonistPatterns) {
+    const match = fullText.match(pattern);
+    if (match && match[1]) {
+      protagonist = match[1];
+      break;
+    }
+  }
+  
+  // Detect setting (common locations)
+  const settingKeywords = [
+    'căn hộ', 'chung cư', 'apartment', 'tòa nhà', 'building',
+    'bệnh viện', 'hospital', 'trạm y tế', 'clinic',
+    'trường học', 'school', 'giáo dục', 'university',
+    'công ty', 'office', 'văn phòng', 'workplace',
+    'siêu thị', 'mall', 'cửa hàng', 'store',
+    'nhà ga', 'station', 'xe buýt', 'bus',
+    'khu dân cư', 'neighborhood', 'khu phố', 'street'
+  ];
+  
+  let setting = '';
+  for (const keyword of settingKeywords) {
+    if (fullText.includes(keyword)) {
+      setting = keyword;
+      break;
+    }
+  }
+  
+  // Detect anomaly (supernatural/unusual elements)
+  const anomalyKeywords = [
+    'cánh cửa', 'door', 'cửa biến mất', 'missing door',
+    'tiếng vọng', 'echo', 'âm thanh lạ', 'strange sound',
+    'bóng đen', 'dark shadow', 'cái bóng', 'shadow',
+    'ký hiệu', 'symbol', 'dấu hiệu', 'sign',
+    'lặp lại', 'repeating', 'lặp đi lặp lại', 'loop',
+    'ký ức', 'memory', 'quên', 'forget',
+    'thực tại', 'reality', 'không thực', 'unreal',
+    'giấc mơ', 'dream', 'mơ', 'dreaming'
+  ];
+  
+  let anomaly = '';
+  for (const keyword of anomalyKeywords) {
+    if (fullText.includes(keyword)) {
+      anomaly = keyword;
+      break;
+    }
+  }
+  
+  // Detect motif (recurring patterns)
+  const motifKeywords = [
+    'danh sách', 'list', 'tên', 'names',
+    'chìa khóa', 'key', 'mở', 'unlock',
+    'thư', 'letter', 'email', 'message',
+    'ảnh', 'photo', 'hình ảnh', 'picture',
+    'số', 'number', 'con số', 'counting',
+    'đồng hồ', 'clock', 'thời gian', 'time',
+    'gương', 'mirror', 'phản chiếu', 'reflection'
+  ];
+  
+  let motif = '';
+  for (const keyword of motifKeywords) {
+    if (fullText.includes(keyword)) {
+      motif = keyword;
+      break;
+    }
+  }
+  
+  return { protagonist, setting, anomaly, motif };
+};
+
+const saveStoryElements = (text: string) => {
+  const elements = extractStoryElements(text);
+  storyElementsHistory.push({
+    ...elements,
+    timestamp: Date.now()
+  });
+  
+  // Keep only the most recent entries
+  if (storyElementsHistory.length > MAX_ELEMENTS_HISTORY) {
+    storyElementsHistory.shift();
+  }
+};
+
+const isElementsSimilar = (newElements: { protagonist: string; setting: string; anomaly: string; motif: string }) => {
+  for (const history of storyElementsHistory) {
+    let similarityScore = 0;
+    
+    if (newElements.protagonist && history.protagonist === newElements.protagonist) similarityScore += 2;
+    if (newElements.setting && history.setting === newElements.setting) similarityScore += 2;
+    if (newElements.anomaly && history.anomaly === newElements.anomaly) similarityScore += 3;
+    if (newElements.motif && history.motif === newElements.motif) similarityScore += 1;
+    
+    // If similarity is too high, consider it too similar
+    if (similarityScore >= 4) return true;
+  }
+  return false;
+};
+
 const selectStoryFlavor = (seedText?: string): StoryFlavor => {
   const random = seedText ? createSeededRandom(hashString(seedText)) : Math.random;
   let flavor: StoryFlavor;
   let attempts = 0;
-  const maxAttempts = seedText ? 10 : 20;
+  const maxAttempts = seedText ? 10 : 50; // Increased max attempts for new stories
   
   do {
     flavor = {
@@ -281,16 +402,39 @@ const selectStoryFlavor = (seedText?: string): StoryFlavor => {
     
     attempts += 1;
     
-    // Check với cả history, không chỉ last flavor
-    if (!seedText && flavorHistoryRef.includes(flavorKey)) {
-      continue; // Thử lại với flavor khác
+    // For seeded stories, accept the first valid flavor
+    if (seedText) {
+      break;
     }
     
-    // Nếu không trùng hoặc đã thử quá nhiều lần, break
-    if (seedText || !flavorHistoryRef.includes(flavorKey) || attempts >= maxAttempts) {
-      if (!seedText) {
+    // For new stories, check if flavor is unique enough
+    let isUnique = !flavorHistoryRef.includes(flavorKey);
+    
+    // If flavor exists in history, check if it's still acceptable after many attempts
+    if (!isUnique && attempts >= maxAttempts - 10) {
+      // After many attempts, relax the uniqueness requirement
+      isUnique = true;
+    }
+    
+    // Check story elements similarity for new stories (not seeded)
+    if (isUnique && !seedText) {
+      const mockElements = {
+        protagonist: flavor.protagonistName.split(' ')[0], // First name only
+        setting: flavor.primarySetting.split(' ')[0], // First word only
+        anomaly: flavor.keyMotif,
+        motif: flavor.keyMotif
+      };
+      
+      if (isElementsSimilar(mockElements) && attempts < maxAttempts - 5) {
+        isUnique = false;
+      }
+    }
+    
+    // If flavor is unique or we've tried too many times, accept it
+    if (isUnique || attempts >= maxAttempts) {
+      if (!seedText && isUnique) {
         flavorHistoryRef.push(flavorKey);
-        // Giữ chỉ MAX_FLAVOR_HISTORY flavor gần nhất
+        // Keep only MAX_FLAVOR_HISTORY recent flavors
         if (flavorHistoryRef.length > MAX_FLAVOR_HISTORY) {
           flavorHistoryRef.shift();
         }
@@ -330,30 +474,45 @@ VARIATION ANCHOR (MANDATORY)
 - Intro mood: ${flavor.introMood}
 `.trim();
 
-const buildCacheAvoidanceBlock = (anchors: string[]) => {
+  const buildCacheAvoidanceBlock = (anchors: string[]) => {
   if (!anchors.length) return "";
   const lines = anchors.map((anchor, index) => `(${index + 1}) ${anchor}`).join("\n");
   return `
 CACHE DIVERSITY ANCHORS (MANDATORY — CRITICAL FOR UNIQUENESS)
-- These are brief anchors from previously generated stories stored on-device.
-- Do NOT reuse their premises, anomalies, reveal structures, key motifs, or endings.
-- Do NOT use similar protagonist roles, settings, or evidence origins.
+- These are detailed anchors from previously generated stories stored on-device.
+- Each anchor contains: Topic, Snippet, Protagonist, Setting, Anomaly, and Motif elements.
+- Do NOT reuse any of these elements or combinations:
+  * If previous story used "missing door", your story must use a completely different anomaly
+  * If previous story used "apartment building", choose a different setting category
+  * If previous story used "list of names", choose a different motif type
+  * If previous protagonist was "security guard", choose a different profession
+- Do NOT use similar premise structures, reveal methods, or ending patterns.
 - Do NOT follow the same narrative arc or pacing structure.
 - If a previous story involved [X], your story must involve something fundamentally different from [X].
 - Vary the emotional tone: if previous was clinical, make this one intimate; if previous was paranoid, make this one elegiac.
 - Vary the scale: if previous was personal, make this one systemic; if previous was local, make this one cosmic.
+- Vary the perspective: if previous was investigation, make this one personal experience; if previous was confession, make this one field report.
 - The goal is ZERO structural similarity to any previous story.
+
 ${lines}
 
 ANTI-PATTERN CHECKLIST (MANDATORY)
 Before writing, verify your story does NOT:
-1. Use the same anomaly type as any anchor above
-2. Use the same reveal method as any anchor above  
-3. Use the same ending mode as any anchor above
-4. Follow the same plot structure as any anchor above
-5. Use similar protagonist role/setting combination as any anchor above
+1. Use the same anomaly type as any anchor above (door, echo, shadow, symbol, loop, memory, reality, dream, etc.)
+2. Use the same reveal method as any anchor above (leaked minutes, email thread, transcript, logs, diary, metadata, etc.)
+3. Use the same ending mode as any anchor above (memory overwrite, identity swap, time reset, coerced silence, etc.)
+4. Use the same protagonist role/setting combination as any anchor above
+5. Use the same key motif pattern as any anchor above (lists, keys, letters, photos, numbers, clocks, mirrors, etc.)
+6. Follow the same narrative structure (linear vs fragmented, investigation vs experience, etc.)
+7. Have the same emotional tone (bleak noir, paranoid, clinical, elegiac, etc.)
 
-If your story would match ANY of the above, you MUST change fundamental elements until it is unique.
+ELEMENT DIVERSITY REQUIREMENTS (MANDATORY)
+- Your story MUST include at least 3 of these 5 elements: Protagonist, Setting, Anomaly, Motif, Evidence Origin
+- Each chosen element must be DIFFERENT from corresponding elements in all anchors above
+- Example: If anchor has "Protagonist: security guard" and "Setting: apartment", you cannot use both "security guard" AND "apartment" together
+- You may use one similar element IF you change at least 2 other elements significantly
+
+If your story would match ANY of the above patterns, you MUST change fundamental elements until it is unique.
 `.trim();
 };
 
@@ -788,45 +947,57 @@ export const streamStoryWithControls = async (
     : false;
   const shouldUseNative = isAndroidNative && nativeSupported && allowBackground;
 
-  if (shouldUseNative) {
-    return streamStoryNative(
-      {
-        apiKey,
-        baseUrl: BASE_URL,
-        model: storyModel,
-        temperature: storyTemperature,
-        topP: STORY_TOP_P,
-        maxTokens: Math.max(4096, DEFAULT_MAX_TOKENS),
-        storyMinWords: lengthConfig.minWords,
-        storyTargetWords: lengthConfig.targetWords,
-        storyHardMaxWords: lengthConfig.hardMaxWords,
-        storyTimeoutMs: STORY_TIMEOUT_MS,
-        storyContextWords: STORY_CONTEXT_WORDS,
-        storyMaxPasses: STORY_MAX_PASSES,
-        horrorLevel: personalization.horrorLevel,
-        narrativeStyle: personalization.narrativeStyle,
-        storyEngine: flavor.engine,
-        storyRevealMethod: flavor.revealMethod,
-        storyEndingMode: flavor.endingMode,
-        storyTone: flavor.tone,
-        storyProtagonistName: flavor.protagonistName,
-        storyProtagonistRole: flavor.protagonistRole,
-        storyPrimarySetting: flavor.primarySetting,
-        storyEvidenceOrigin: flavor.evidenceOrigin,
-        storyKeyMotif: flavor.keyMotif,
-        storyIntroMood: flavor.introMood,
-        outroSignature: OUTRO_SIGNATURE,
-        language: lang,
-        topic,
-        existingText: options?.existingText || "",
-      },
-      onChunk,
-      options?.signal
-    );
-  }
-
   const maxTokens = Math.max(4096, DEFAULT_MAX_TOKENS);
   const baseText = options?.existingText?.trim() ? options.existingText : "";
+
+  if (shouldUseNative) {
+    try {
+      const generated = await streamStoryNative(
+        {
+          apiKey,
+          baseUrl: BASE_URL,
+          model: storyModel,
+          temperature: storyTemperature,
+          topP: STORY_TOP_P,
+          maxTokens: Math.max(4096, DEFAULT_MAX_TOKENS),
+          storyMinWords: lengthConfig.minWords,
+          storyTargetWords: lengthConfig.targetWords,
+          storyHardMaxWords: lengthConfig.hardMaxWords,
+          storyTimeoutMs: STORY_TIMEOUT_MS,
+          storyContextWords: STORY_CONTEXT_WORDS,
+          storyMaxPasses: STORY_MAX_PASSES,
+          horrorLevel: personalization.horrorLevel,
+          narrativeStyle: personalization.narrativeStyle,
+          storyEngine: flavor.engine,
+          storyRevealMethod: flavor.revealMethod,
+          storyEndingMode: flavor.endingMode,
+          storyTone: flavor.tone,
+          storyProtagonistName: flavor.protagonistName,
+          storyProtagonistRole: flavor.protagonistRole,
+          storyPrimarySetting: flavor.primarySetting,
+          storyEvidenceOrigin: flavor.evidenceOrigin,
+          storyKeyMotif: flavor.keyMotif,
+          storyIntroMood: flavor.introMood,
+          outroSignature: OUTRO_SIGNATURE,
+          language: lang,
+          topic,
+          existingText: baseText,
+        },
+        onChunk,
+        options?.signal
+      );
+      if (generated && generated.length) {
+        return generated;
+      }
+      console.warn("Native generation returned empty result; falling back to HTTP stream.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error;
+      }
+      console.warn("Native generation failed, falling back to HTTP stream:", error);
+    }
+  }
+
   let fullText = baseText;
   let newlyGeneratedText = "";
 
@@ -945,7 +1116,17 @@ export const streamStoryWithControls = async (
     console.warn("Story reached minimum length but appears unfinished (missing outro signature).");
   }
 
+  // Save story elements for future uniqueness checking
+  saveElementsFromCompletedStory(fullText);
+
   return newlyGeneratedText;
+};
+
+// Save story elements for future uniqueness checking
+const saveElementsFromCompletedStory = (text: string) => {
+  if (text && text.trim().length > 100) {
+    saveStoryElements(text);
+  }
 };
 
 const streamStoryNative = async (
@@ -986,6 +1167,8 @@ const streamStoryNative = async (
   let fullText = received;
   let done = false;
   let error: Error | null = null;
+  let aborted = false;
+  let lastActivity = Date.now();
 
   const chunkHandle = await BackgroundStory.addListener("storyChunk", (event: any) => {
     const text = typeof event?.text === "string" ? event.text : "";
@@ -993,6 +1176,7 @@ const streamStoryNative = async (
     received += text;
     fullText += text;
     onChunk(text);
+    lastActivity = Date.now();
   });
 
   const doneHandle = await BackgroundStory.addListener("storyDone", (event: any) => {
@@ -1000,6 +1184,7 @@ const streamStoryNative = async (
     if (text) {
       fullText = text;
     }
+    lastActivity = Date.now();
     done = true;
   });
 
@@ -1007,10 +1192,16 @@ const streamStoryNative = async (
     const message = typeof event?.message === "string" ? event.message : "Generation failed";
     const aborted = Boolean(event?.aborted);
     error = aborted ? new DOMException("Aborted", "AbortError") : new Error(message);
+    lastActivity = Date.now();
     done = true;
   });
 
   const abortHandler = () => {
+    aborted = true;
+    done = true;
+    if (!error) {
+      error = new DOMException("Aborted", "AbortError");
+    }
     BackgroundStory.stop().catch(() => undefined);
   };
   if (signal) {
@@ -1054,10 +1245,30 @@ const streamStoryNative = async (
     while (!done) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       cycles += 1;
+
+      // If user aborted and background service stopped without emitting events,
+      // exit to avoid spinning forever and burning CPU.
+      if (aborted) {
+        break;
+      }
+
+      // Fallback if native pipeline is idle for too long
+      const idleMs = Date.now() - lastActivity;
+      if (idleMs > 8000) {
+        if (!error) {
+          error = new Error("Native generation stalled (no activity).");
+        }
+        done = true;
+        break;
+      }
+
       if (cycles % 10 === 0) {
         const state = await BackgroundStory.getState().catch(() => null);
-        if (state && !state.running && typeof state.text === "string" && state.text.length) {
-          fullText = state.text;
+        const hasText = typeof state?.text === "string" && state.text.length > 0;
+        if (state && !state.running) {
+          if (hasText) {
+            fullText = state.text;
+          }
           done = true;
         }
       }
@@ -1197,3 +1408,28 @@ OUTPUT: Only the title, no explanation.
     return lang === 'vi' ? 'Truyện không tên' : 'Untitled Story';
   }
 };
+
+// Cleanup function to clear history and prevent memory leak
+export const clearGenerationHistory = () => {
+  // Keep only recent history to prevent unbounded memory growth
+  if (flavorHistoryRef.length > MAX_FLAVOR_HISTORY) {
+    const excess = flavorHistoryRef.length - MAX_FLAVOR_HISTORY;
+    flavorHistoryRef.splice(0, excess);
+  }
+  
+  if (storyElementsHistory.length > MAX_ELEMENTS_HISTORY) {
+    const excess = storyElementsHistory.length - MAX_ELEMENTS_HISTORY;
+    storyElementsHistory.splice(0, excess);
+  }
+  
+  // Also clear old elements based on timestamp (older than 1 hour)
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  let i = 0;
+  while (i < storyElementsHistory.length && storyElementsHistory[i].timestamp < oneHourAgo) {
+    i++;
+  }
+  if (i > 0) {
+    storyElementsHistory.splice(0, i);
+  }
+};
+

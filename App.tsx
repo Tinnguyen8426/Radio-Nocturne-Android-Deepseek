@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls } from './services/deepseekService';
+import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls, clearGenerationHistory } from './services/deepseekService';
 import { StoryStatus, GenerationState, GENRE_PROMPTS, Language, StoryRecord } from './types';
 import StoryDisplay from './components/StoryDisplay';
 import TTSPlayer, { TTSPlayerHandle } from './components/TTSPlayer';
@@ -228,6 +228,89 @@ const extractCacheSnippet = (text: string) => {
     : compact;
 };
 
+const extractStoryElements = (text: string) => {
+  const lines = toStoryLines(text).filter((line) => line !== OUTRO_SIGNATURE);
+  if (!lines.length) return { protagonist: '', setting: '', anomaly: '', motif: '' };
+  
+  const fullText = lines.join(' ').toLowerCase();
+  
+  // Detect protagonist (common patterns)
+  const protagonistPatterns = [
+    /tôi là (\w+\s*\w*)/i,
+    /tôi tên là (\w+\s*\w*)/i,
+    /tôi, (\w+\s*\w*),/i,
+  ];
+  
+  let protagonist = '';
+  for (const pattern of protagonistPatterns) {
+    const match = fullText.match(pattern);
+    if (match && match[1]) {
+      protagonist = match[1];
+      break;
+    }
+  }
+  
+  // Detect setting (common locations)
+  const settingKeywords = [
+    'căn hộ', 'chung cư', 'apartment', 'tòa nhà', 'building',
+    'bệnh viện', 'hospital', 'trạm y tế', 'clinic',
+    'trường học', 'school', 'giáo dục', 'university',
+    'công ty', 'office', 'văn phòng', 'workplace',
+    'siêu thị', 'mall', 'cửa hàng', 'store',
+    'nhà ga', 'station', 'xe buýt', 'bus',
+    'khu dân cư', 'neighborhood', 'khu phố', 'street'
+  ];
+  
+  let setting = '';
+  for (const keyword of settingKeywords) {
+    if (fullText.includes(keyword)) {
+      setting = keyword;
+      break;
+    }
+  }
+  
+  // Detect anomaly (supernatural/unusual elements)
+  const anomalyKeywords = [
+    'cánh cửa', 'door', 'cửa biến mất', 'missing door',
+    'tiếng vọng', 'echo', 'âm thanh lạ', 'strange sound',
+    'bóng đen', 'dark shadow', 'cái bóng', 'shadow',
+    'ký hiệu', 'symbol', 'dấu hiệu', 'sign',
+    'lặp lại', 'repeating', 'lặp đi lặp lại', 'loop',
+    'ký ức', 'memory', 'quên', 'forget',
+    'thực tại', 'reality', 'không thực', 'unreal',
+    'giấc mơ', 'dream', 'mơ', 'dreaming'
+  ];
+  
+  let anomaly = '';
+  for (const keyword of anomalyKeywords) {
+    if (fullText.includes(keyword)) {
+      anomaly = keyword;
+      break;
+    }
+  }
+  
+  // Detect motif (recurring patterns)
+  const motifKeywords = [
+    'danh sách', 'list', 'tên', 'names',
+    'chìa khóa', 'key', 'mở', 'unlock',
+    'thư', 'letter', 'email', 'message',
+    'ảnh', 'photo', 'hình ảnh', 'picture',
+    'số', 'number', 'con số', 'counting',
+    'đồng hồ', 'clock', 'thời gian', 'time',
+    'gương', 'mirror', 'phản chiếu', 'reflection'
+  ];
+  
+  let motif = '';
+  for (const keyword of motifKeywords) {
+    if (fullText.includes(keyword)) {
+      motif = keyword;
+      break;
+    }
+  }
+  
+  return { protagonist, setting, anomaly, motif };
+};
+
 const buildCacheAnchors = (
   records: StoryRecord[],
   language: Language,
@@ -244,10 +327,18 @@ const buildCacheAnchors = (
     const topic = story.topic.trim();
     const safeTopic = topic && topic !== autoTopicLabel ? topic : '';
     const snippet = extractCacheSnippet(story.text);
-    const anchor = [safeTopic ? `Topic: "${safeTopic}"` : '', snippet ? `Snippet: "${snippet}"` : '']
-      .filter(Boolean)
-      .join(' | ')
-      .trim();
+    const elements = extractStoryElements(story.text);
+    
+    const anchorParts = [
+      safeTopic ? `Topic: "${safeTopic}"` : '',
+      snippet ? `Snippet: "${snippet}"` : '',
+      elements.protagonist ? `Protagonist: "${elements.protagonist}"` : '',
+      elements.setting ? `Setting: "${elements.setting}"` : '',
+      elements.anomaly ? `Anomaly: "${elements.anomaly}"` : '',
+      elements.motif ? `Motif: "${elements.motif}"` : ''
+    ].filter(Boolean);
+    
+    const anchor = anchorParts.join(' | ').trim();
     if (!anchor || seen.has(anchor)) continue;
     seen.add(anchor);
     anchors.push(anchor);
@@ -415,6 +506,17 @@ const App: React.FC = () => {
     setStartFromOffset(0);
     setTtsStoryKey((key) => key + 1);
     setTtsOffset(0);
+    
+    // Clean up previous generation request
+    if (generationControllerRef.current) {
+      generationControllerRef.current.abort();
+      generationControllerRef.current = null;
+    }
+    
+    // Reset all refs for new story generation
+    lastSavedKeyRef.current = '';
+    generationIdRef.current += 1; // Ensure new request ID
+    
     const trimmedTopic = topicInput.trim();
     const usingAutoTopic = trimmedTopic.length === 0;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
@@ -433,7 +535,7 @@ const App: React.FC = () => {
       topic: displayTopic,
     });
 
-    const requestId = ++generationIdRef.current;
+    const requestId = generationIdRef.current;
     const controller = new AbortController();
     generationControllerRef.current = controller;
 
@@ -493,6 +595,9 @@ const App: React.FC = () => {
     }
     setShowPauseDialog(true);
     generationControllerRef.current?.abort();
+    
+    // Cleanup history to prevent memory leak
+    clearGenerationHistory();
   };
 
   const handleResumeBroadcast = async () => {
@@ -500,6 +605,16 @@ const App: React.FC = () => {
     if (!state.text.trim().length) return;
 
     setActiveStoryId(null);
+    
+    // Clean up previous generation request
+    if (generationControllerRef.current) {
+      generationControllerRef.current.abort();
+      generationControllerRef.current = null;
+    }
+    
+    // Increment request ID for this resume attempt
+    generationIdRef.current += 1;
+    
     const trimmedTopic = lastTopicRef.current;
     const usingAutoTopic = lastUsingAutoTopicRef.current;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
@@ -510,7 +625,7 @@ const App: React.FC = () => {
     const cacheAnchors = reuseCache
       ? buildCacheAnchors(stories, language, t.autoTopicLabel)
       : [];
-    const requestId = ++generationIdRef.current;
+    const requestId = generationIdRef.current;
     const controller = new AbortController();
     generationControllerRef.current = controller;
 
@@ -623,8 +738,20 @@ const App: React.FC = () => {
   }, [state.status, state.text, state.topic, language, activeStoryId]);
 
   const handleSelectStory = (story: StoryRecord) => {
-    generationControllerRef.current?.abort();
+    // Stop current generation and clear controller
+    if (generationControllerRef.current) {
+      generationControllerRef.current.abort();
+      generationControllerRef.current = null;
+    }
+    // Increment request ID to invalidate any pending requests
     generationIdRef.current += 1;
+    
+    // Reset generation refs
+    generationSeedRef.current = '';
+    lastSavedKeyRef.current = '';
+    lastTopicRef.current = '';
+    lastUsingAutoTopicRef.current = false;
+    
     setActiveStoryId(story.id);
     setActiveTab('home');
     setTopicInput(story.topic);
@@ -648,6 +775,10 @@ const App: React.FC = () => {
 
   const handleCreateNewFromPause = () => {
     setShowPauseDialog(false);
+    
+    // Cleanup history to prevent memory leak
+    clearGenerationHistory();
+    
     // Lưu truyện hiện tại
     if (state.text.trim().length > 0) {
       saveStory({
@@ -661,6 +792,17 @@ const App: React.FC = () => {
         })
         .catch((error) => console.error("Failed to save story:", error));
     }
+    // Abort current generation if running
+    generationControllerRef.current?.abort();
+    
+    // Reset all generation-related refs to prepare for new story
+    generationIdRef.current += 1; // Increment to invalidate previous request
+    generationSeedRef.current = ''; // Clear seed
+    lastSavedKeyRef.current = ''; // Clear saved key check
+    lastTopicRef.current = ''; // Clear last topic
+    lastUsingAutoTopicRef.current = false; // Reset auto topic flag
+    generationControllerRef.current = null; // Clear controller
+    
     // Tạo truyện mới
     setTopicInput('');
     setTtsOffset(0);
