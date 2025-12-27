@@ -24,6 +24,10 @@ interface TTSPlayerProps {
   storyKey: number;
   startFromOffset?: number;
   onProgress?: (offset: number) => void;
+  initialRate?: number;
+  initialPitch?: number;
+  onRateChange?: (next: number) => void;
+  onPitchChange?: (next: number) => void;
 }
 
 const CHUNK_GRANULARITY = 420;
@@ -48,9 +52,21 @@ const describeError = (err: unknown) => {
 };
 
 const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
-  const { text, topic, language, isGenerating, storyKey, startFromOffset = 0, onProgress } = props;
-  const [rate, setRate] = useState(1);
-  const [pitch, setPitch] = useState(1);
+  const {
+    text,
+    topic,
+    language,
+    isGenerating,
+    storyKey,
+    startFromOffset = 0,
+    onProgress,
+    initialRate = 1,
+    initialPitch = 1,
+    onRateChange,
+    onPitchChange,
+  } = props;
+  const [rate, setRate] = useState(initialRate);
+  const [pitch, setPitch] = useState(initialPitch);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [waitsForNextChunk, setWaitsForNextChunk] = useState(false);
@@ -82,6 +98,26 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   const nativeReadyRef = useRef(false);
   const externalStartRef = useRef(startFromOffset);
   const notificationActionRef = useRef<PluginListenerHandle | null>(null);
+
+  useEffect(() => {
+    setRate(initialRate);
+  }, [initialRate]);
+
+  useEffect(() => {
+    setPitch(initialPitch);
+  }, [initialPitch]);
+
+  const handleRateChange = useCallback((next: number) => {
+    const normalized = Math.min(2, Math.max(0.5, next));
+    setRate(normalized);
+    onRateChange?.(normalized);
+  }, [onRateChange]);
+
+  const handlePitchChange = useCallback((next: number) => {
+    const normalized = Math.min(2, Math.max(0.5, next));
+    setPitch(normalized);
+    onPitchChange?.(normalized);
+  }, [onPitchChange]);
 
   const speechSupported = isNativeAndroid
     ? nativeSupported
@@ -884,7 +920,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
                   max="2"
                   step="0.05"
                   value={rate}
-                  onChange={(e) => setRate(parseFloat(e.target.value))}
+                  onChange={(e) => handleRateChange(parseFloat(e.target.value))}
                   className="w-full accent-red-600"
                 />
               </label>
@@ -897,7 +933,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
                   max="2"
                   step="0.05"
                   value={pitch}
-                  onChange={(e) => setPitch(parseFloat(e.target.value))}
+                  onChange={(e) => handlePitchChange(parseFloat(e.target.value))}
                   className="w-full accent-red-600"
                 />
               </label>

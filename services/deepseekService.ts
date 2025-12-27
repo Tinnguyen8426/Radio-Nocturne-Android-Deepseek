@@ -526,7 +526,8 @@ const streamChatCompletion = async (
   }: { temperature: number; maxTokens: number; signal?: AbortSignal; model: string },
   apiKey: string,
   onChunk: (text: string) => void,
-  shouldStop?: () => boolean
+  shouldStop?: () => boolean,
+  onReasoningChunk?: (text: string) => void
 ): Promise<string> => {
   const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
@@ -586,12 +587,20 @@ const streamChatCompletion = async (
 
       try {
         const parsed = JSON.parse(jsonStr);
+        const reasoning =
+          parsed.choices?.[0]?.delta?.reasoning_content ||
+          parsed.choices?.[0]?.message?.reasoning_content ||
+          parsed.output?.[0]?.content?.[0]?.reasoning_content ||
+          "";
         const text =
           parsed.choices?.[0]?.delta?.content ||
           parsed.choices?.[0]?.message?.content ||
           parsed.choices?.[0]?.text ||
           parsed.output?.[0]?.content?.[0]?.text ||
           "";
+        if (reasoning) {
+          onReasoningChunk?.(reasoning);
+        }
         if (text) {
           full += text;
           onChunk(text);
@@ -916,7 +925,13 @@ export const streamStoryWithControls = async (
   topic: string,
   lang: Language,
   onChunk: (text: string) => void,
-  options?: { signal?: AbortSignal; existingText?: string; seed?: string; cacheAnchors?: string[] }
+  options?: {
+    signal?: AbortSignal;
+    existingText?: string;
+    seed?: string;
+    cacheAnchors?: string[];
+    onReasoningChunk?: (text: string) => void;
+  }
 ) => {
   const apiKey = await getResolvedApiKey();
   if (!apiKey) throw new Error("API Key is missing");
@@ -1049,7 +1064,8 @@ export const streamStoryWithControls = async (
           fullText = next;
           onChunk(chunk);
         },
-        () => signatureReached
+        () => signatureReached,
+        options?.onReasoningChunk
       );
     } catch (error) {
       if (timedOut) throw new Error("Story generation timed out.");
