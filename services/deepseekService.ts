@@ -30,6 +30,7 @@ const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.5);
 const STORY_TIMEOUT_MS = Number(import.meta.env.VITE_STORY_TIMEOUT_MS || 12 * 60 * 1000);
 const STORY_CONTEXT_WORDS = Number(import.meta.env.VITE_STORY_CONTEXT_WORDS || 320);
 const STORY_MAX_PASSES = Number(import.meta.env.VITE_STORY_MAX_PASSES || 6);
+const MAX_CACHE_ANCHORS = Number(import.meta.env.VITE_STORY_CACHE_ANCHORS || 4);
 export const OUTRO_SIGNATURE =
   "Tôi là Morgan Hayes, và radio Truyện Đêm Khuya xin phép được tạm dừng tại đây. Chúc các bạn có một đêm ngon giấc nếu còn có thể.";
 
@@ -308,6 +309,17 @@ VARIATION ANCHOR (MANDATORY)
 - Intro mood: ${flavor.introMood}
 `.trim();
 
+const buildCacheAvoidanceBlock = (anchors: string[]) => {
+  if (!anchors.length) return "";
+  const lines = anchors.map((anchor, index) => `(${index + 1}) ${anchor}`).join("\n");
+  return `
+CACHE DIVERSITY ANCHORS (MANDATORY)
+- These are brief anchors from previously generated stories stored on-device.
+- Do NOT reuse their premises, anomalies, reveal structures, key motifs, or endings.
+${lines}
+`.trim();
+};
+
 const streamChatCompletion = async (
   messages: DeepSeekMessage[],
   {
@@ -404,12 +416,15 @@ const getMorganHayesPrompt = (
   rawTopic: string | undefined,
   personalization: StoryPersonalization,
   lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number },
-  flavor: StoryFlavor
+  flavor: StoryFlavor,
+  cacheAnchors: string[]
 ) => {
   const trimmedTopic = rawTopic?.trim();
   const personalizationBlock = buildPersonalizationBlock(personalization);
   const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
   const flavorSection = buildFlavorBlock(flavor);
+  const cacheBlock = buildCacheAvoidanceBlock(cacheAnchors);
+  const cacheSection = cacheBlock ? `\n${cacheBlock}` : "";
   const topicDirective = trimmedTopic
     ? `
 USER INPUT (TOPIC OR STORY DIRECTION):
@@ -495,7 +510,7 @@ PRESENT-DAY TRUTH (MANDATORY)
 
 DIVERSITY REQUIREMENTS (MANDATORY — AVOID REPETITION)
 - Use the following randomized selections exactly as written (do NOT override them):
-${flavorSection}
+${flavorSection}${cacheSection}
 - Do NOT default to the template: “a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased.”
 - No direct recruitment offer, no “sign this or die” ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.
 - Include at least one mid-story reversal that is NOT “they contacted me to recruit me.”
@@ -565,7 +580,8 @@ const getContinuationPrompt = (
   mode: "continue" | "finalize",
   personalization: StoryPersonalization,
   lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number },
-  flavor: StoryFlavor
+  flavor: StoryFlavor,
+  cacheAnchors: string[]
 ) => {
   const topic = rawTopic?.trim();
   const alreadyWords = countWords(existingText);
@@ -575,6 +591,8 @@ const getContinuationPrompt = (
   const personalizationBlock = buildPersonalizationBlock(personalization);
   const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
   const flavorSection = buildFlavorBlock(flavor);
+  const cacheBlock = buildCacheAvoidanceBlock(cacheAnchors);
+  const cacheSection = cacheBlock ? `\n${cacheBlock}` : "";
 
   const topicNote = topic
     ? `Keep the same topic or direction from the user: "${topic}".`
@@ -608,7 +626,7 @@ ${mode === "finalize"
 STYLE & OUTPUT FORMAT
 - Plain text only. No Markdown. Do NOT use emphasis markers or bullet lists.
 - Insert a line break after each sentence for readability.
-${flavorSection}
+${flavorSection}${cacheSection}
 ${personalizationSection}
 
 TECH MINIMIZATION
@@ -637,7 +655,7 @@ export const streamStoryWithControls = async (
   topic: string,
   lang: Language,
   onChunk: (text: string) => void,
-  options?: { signal?: AbortSignal; existingText?: string; seed?: string }
+  options?: { signal?: AbortSignal; existingText?: string; seed?: string; cacheAnchors?: string[] }
 ) => {
   const apiKey = await getResolvedApiKey();
   if (!apiKey) throw new Error("API Key is missing");
@@ -648,6 +666,16 @@ export const streamStoryWithControls = async (
   const flavorSeed =
     options?.seed || (options?.existingText?.trim() ? options.existingText : undefined);
   const flavor = selectStoryFlavor(flavorSeed);
+  const maxCacheAnchors =
+    Number.isFinite(MAX_CACHE_ANCHORS) && MAX_CACHE_ANCHORS > 0
+      ? Math.floor(MAX_CACHE_ANCHORS)
+      : 0;
+  const cacheAnchors = maxCacheAnchors
+    ? (options?.cacheAnchors || [])
+      .map((anchor) => anchor.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, maxCacheAnchors)
+    : [];
 
   const allowBackground = await getAllowBackgroundGeneration();
   const isAndroidNative =
@@ -776,8 +804,17 @@ export const streamStoryWithControls = async (
       : "continue";
 
     const prompt = isFirstPass
-      ? getMorganHayesPrompt(lang, topic, personalization, lengthConfig, flavor)
-      : getContinuationPrompt(lang, topic, fullText, mode, personalization, lengthConfig, flavor);
+      ? getMorganHayesPrompt(lang, topic, personalization, lengthConfig, flavor, cacheAnchors)
+      : getContinuationPrompt(
+        lang,
+        topic,
+        fullText,
+        mode,
+        personalization,
+        lengthConfig,
+        flavor,
+        cacheAnchors
+      );
 
     await runPass(prompt);
 

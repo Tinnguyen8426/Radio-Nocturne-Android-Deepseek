@@ -69,8 +69,8 @@ const TRANSLATIONS = {
     backgroundLabel: "Cho phép tạo truyện nền",
     backgroundHint: "Bật để app tiếp tục tạo truyện khi bạn chuyển sang ứng dụng khác.",
     backgroundUnavailable: "Thiết bị chưa hỗ trợ chạy nền.",
-    reuseCacheLabel: "Dùng lại cache",
-    reuseCacheHint: "Tái sử dụng truyện đã tạo để tiết kiệm lượt gọi API.",
+    reuseCacheLabel: "Dùng cache chống trùng lặp",
+    reuseCacheHint: "Dùng truyện đã tạo làm điểm tựa để tránh lặp ý tưởng và motif.",
     storyModelLabel: "Model tạo truyện",
     storyModelHint: "Chọn model dùng cho phần tạo truyện.",
     storyModelReasoner: "deepseek-reasoner (logic, chặt chẽ)",
@@ -125,8 +125,8 @@ const TRANSLATIONS = {
     backgroundLabel: "Allow background generation",
     backgroundHint: "Keep generating stories while you switch to other apps.",
     backgroundUnavailable: "Background mode is unavailable.",
-    reuseCacheLabel: "Reuse cache",
-    reuseCacheHint: "Reuse previously generated stories to save API calls.",
+    reuseCacheLabel: "Avoid repetition with cache",
+    reuseCacheHint: "Use cached stories as anchors so new stories avoid duplicating them.",
     storyModelLabel: "Story model",
     storyModelHint: "Choose the model used for story generation.",
     storyModelReasoner: "deepseek-reasoner (structured)",
@@ -190,6 +190,60 @@ const THEMED_RANDOM_TOPICS: Record<Language, string[]> = {
   ],
 };
 
+const CACHE_ANCHOR_LIMIT = 4;
+const CACHE_SNIPPET_LINES = 3;
+const CACHE_SNIPPET_MAX_CHARS = 240;
+const INTRO_SENTENCE_MIN = 12;
+
+const toStoryLines = (text: string) =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+const extractCacheSnippet = (text: string) => {
+  const lines = toStoryLines(text).filter((line) => line !== OUTRO_SIGNATURE);
+  if (!lines.length) return '';
+  const startIndex =
+    lines.length > INTRO_SENTENCE_MIN
+      ? INTRO_SENTENCE_MIN
+      : Math.max(0, lines.length - CACHE_SNIPPET_LINES);
+  const snippet = lines.slice(startIndex, startIndex + CACHE_SNIPPET_LINES).join(' ');
+  const compact = snippet.replace(/\s+/g, ' ').trim();
+  if (!compact) return '';
+  return compact.length > CACHE_SNIPPET_MAX_CHARS
+    ? `${compact.slice(0, CACHE_SNIPPET_MAX_CHARS)}...`
+    : compact;
+};
+
+const buildCacheAnchors = (
+  records: StoryRecord[],
+  language: Language,
+  autoTopicLabel: string
+) => {
+  const sorted = [...records]
+    .filter((story) => story.language === language && story.text.trim().length)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const anchors: string[] = [];
+  const seen = new Set<string>();
+
+  for (const story of sorted) {
+    if (anchors.length >= CACHE_ANCHOR_LIMIT) break;
+    const topic = story.topic.trim();
+    const safeTopic = topic && topic !== autoTopicLabel ? topic : '';
+    const snippet = extractCacheSnippet(story.text);
+    const anchor = [safeTopic ? `Topic: "${safeTopic}"` : '', snippet ? `Snippet: "${snippet}"` : '']
+      .filter(Boolean)
+      .join(' | ')
+      .trim();
+    if (!anchor || seen.has(anchor)) continue;
+    seen.add(anchor);
+    anchors.push(anchor);
+  }
+
+  return anchors;
+};
+
 const App: React.FC = () => {
   const [language, setLanguage] = useState<Language>('vi');
   const t = TRANSLATIONS[language];
@@ -201,7 +255,6 @@ const App: React.FC = () => {
   });
   const [activeTab, setActiveTab] = useState<'home' | 'library' | 'settings'>('home');
   const [topicInput, setTopicInput] = useState('');
-  const storyCacheRef = useRef<Map<string, { text: string }>>(new Map());
   const ttsRef = useRef<TTSPlayerHandle>(null);
   const [ttsOffset, setTtsOffset] = useState(0);
   const generationControllerRef = useRef<AbortController | null>(null);
@@ -256,7 +309,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     setTopicInput('');
-    storyCacheRef.current.clear();
     aiTopicCacheRef.current = [];
     console.log("Language changed, cache cleared.");
   }, [language]);
@@ -341,12 +393,11 @@ const App: React.FC = () => {
     const trimmedTopic = topicInput.trim();
     const usingAutoTopic = trimmedTopic.length === 0;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
-    const personalizationKey =
-      `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}:${storyModel}`;
     const generationSeed = `${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`;
     generationSeedRef.current = generationSeed;
-    const allowCache = reuseCache && !usingAutoTopic;
-    const cacheKey = allowCache ? `${language}:${trimmedTopic}:${personalizationKey}` : null;
+    const cacheAnchors = reuseCache
+      ? buildCacheAnchors(stories, language, t.autoTopicLabel)
+      : [];
     lastTopicRef.current = trimmedTopic;
     lastUsingAutoTopicRef.current = usingAutoTopic;
 
@@ -356,18 +407,6 @@ const App: React.FC = () => {
       error: undefined,
       topic: displayTopic,
     });
-
-    if (cacheKey && storyCacheRef.current.has(cacheKey)) {
-      const cached = storyCacheRef.current.get(cacheKey)!;
-      console.log("Cache hit for topic:", trimmedTopic);
-      setState({
-        status: StoryStatus.COMPLETE,
-        text: cached.text,
-        topic: displayTopic,
-        error: undefined,
-      });
-      return;
-    }
 
     const requestId = ++generationIdRef.current;
     const controller = new AbortController();
@@ -383,14 +422,10 @@ const App: React.FC = () => {
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
-        { signal: controller.signal, seed: generationSeed }
+        { signal: controller.signal, seed: generationSeed, cacheAnchors }
       );
 
       fullText = normalizeOutroSignature(fullText);
-      if (cacheKey) {
-        storyCacheRef.current.set(cacheKey, { text: fullText });
-        console.log("Cached new story for topic:", trimmedTopic);
-      }
 
       if (requestId !== generationIdRef.current) return;
       setState(prev => ({ ...prev, status: StoryStatus.COMPLETE, text: fullText }));
@@ -430,14 +465,13 @@ const App: React.FC = () => {
     const trimmedTopic = lastTopicRef.current;
     const usingAutoTopic = lastUsingAutoTopicRef.current;
     const displayTopic = usingAutoTopic ? t.autoTopicLabel : trimmedTopic;
-    const personalizationKey =
-      `${personalization.horrorLevel}:${personalization.narrativeStyle}:${targetWords}:${storyModel}`;
     const generationSeed =
       generationSeedRef.current ||
       `${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`;
     generationSeedRef.current = generationSeed;
-    const allowCache = reuseCache && !usingAutoTopic;
-    const cacheKey = allowCache ? `${language}:${trimmedTopic}:${personalizationKey}` : null;
+    const cacheAnchors = reuseCache
+      ? buildCacheAnchors(stories, language, t.autoTopicLabel)
+      : [];
     const requestId = ++generationIdRef.current;
     const controller = new AbortController();
     generationControllerRef.current = controller;
@@ -461,15 +495,11 @@ const App: React.FC = () => {
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
-        { signal: controller.signal, existingText: initialText, seed: generationSeed }
+        { signal: controller.signal, existingText: initialText, seed: generationSeed, cacheAnchors }
       );
 
       fullText = normalizeOutroSignature(fullText);
       if (requestId !== generationIdRef.current) return;
-      if (cacheKey) {
-        storyCacheRef.current.set(cacheKey, { text: fullText });
-        console.log("Cached new story for topic:", trimmedTopic);
-      }
 
       setState(prev => ({ ...prev, status: StoryStatus.COMPLETE, text: fullText }));
     } catch (error) {
@@ -604,7 +634,6 @@ const App: React.FC = () => {
   const handleToggleReuseCache = async () => {
     const next = !reuseCache;
     setReuseCache(next);
-    storyCacheRef.current.clear();
     try {
       await setReuseStoryCache(next);
     } catch (error) {
@@ -614,7 +643,6 @@ const App: React.FC = () => {
 
   const handleStoryModelChange = async (next: StoryModel) => {
     setStoryModelState(next);
-    storyCacheRef.current.clear();
     try {
       await setStoryModel(next);
     } catch (error) {
