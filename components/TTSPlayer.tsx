@@ -435,13 +435,14 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     latestTextRef.current = text;
     const hasNewContent = text.length > lastTextLengthRef.current;
     const wasWaitingForChunk = waitsForNextChunk && hasNewContent;
+    const noActiveSpeech = isNativeAndroid ? !nativeChunkRef.current : !utteranceRef.current;
 
     if (wasWaitingForChunk) {
       setWaitsForNextChunk(false);
     }
 
     if (hasNewContent && generatingRef.current && !isPaused) {
-      if (!isPlaying || wasWaitingForChunk) {
+      if (!isPlaying || wasWaitingForChunk || noActiveSpeech) {
         speakFromOffset(offsetRef.current);
       } else if (isNativeAndroid) {
         BackgroundTts.stop().catch(() => undefined);
