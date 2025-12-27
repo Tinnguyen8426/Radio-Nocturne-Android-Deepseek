@@ -21,6 +21,7 @@ interface TTSPlayerProps {
   topic: string;
   language: Language;
   isGenerating: boolean;
+  storyKey: number;
   startFromOffset?: number;
   onProgress?: (offset: number) => void;
 }
@@ -47,7 +48,7 @@ const describeError = (err: unknown) => {
 };
 
 const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
-  const { text, topic, language, isGenerating, startFromOffset = 0, onProgress } = props;
+  const { text, topic, language, isGenerating, storyKey, startFromOffset = 0, onProgress } = props;
   const [rate, setRate] = useState(1);
   const [pitch, setPitch] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -530,7 +531,16 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   }, [clearNowPlayingNotification, isNativeAndroid, isPaused, isPlaying, pushNowPlayingNotification]);
 
   const handlePlay = useCallback(() => {
-    if (!speechSupported || !latestTextRef.current.trim().length) return;
+    if (!speechSupported) return;
+
+    if (!latestTextRef.current.trim().length) {
+      if (generatingRef.current) {
+        setIsPaused(false);
+        setWaitsForNextChunk(true);
+        speakFromOffset(0);
+      }
+      return;
+    }
 
     if (!isNativeAndroid) {
       if (isPaused && window.speechSynthesis.paused) {
@@ -616,9 +626,15 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   );
 
   useEffect(() => {
+    latestTextRef.current = text;
+  }, [text]);
+
+  useEffect(() => {
+    latestTextRef.current = text;
+    lastTextLengthRef.current = text.length;
     const normalized = Math.max(0, Math.min(startFromOffset, text.length));
     externalStartRef.current = normalized;
-    latestTextRef.current = text;
+
     if (!text.length) {
       stopPlayback();
       return;
@@ -638,7 +654,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     speechSupported,
     startFromOffset,
     stopPlayback,
-    text,
+    storyKey,
     updateOffset,
   ]);
 

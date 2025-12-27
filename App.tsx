@@ -259,6 +259,7 @@ const App: React.FC = () => {
   const ttsRef = useRef<TTSPlayerHandle>(null);
   const [ttsOffset, setTtsOffset] = useState(0);
   const [startFromOffset, setStartFromOffset] = useState(0);
+  const [ttsStoryKey, setTtsStoryKey] = useState(0);
   const generationControllerRef = useRef<AbortController | null>(null);
   const generationIdRef = useRef(0);
   const lastTopicRef = useRef('');
@@ -395,6 +396,7 @@ const App: React.FC = () => {
   const handleGenerate = async () => {
     setActiveStoryId(null);
     setStartFromOffset(0);
+    setTtsStoryKey((key) => key + 1);
     setTtsOffset(0);
     const trimmedTopic = topicInput.trim();
     const usingAutoTopic = trimmedTopic.length === 0;
@@ -590,6 +592,7 @@ const App: React.FC = () => {
       error: undefined,
     });
     setStartFromOffset(offset);
+    setTtsStoryKey((key) => key + 1);
     setTtsOffset(offset);
   };
 
@@ -1043,6 +1046,7 @@ const App: React.FC = () => {
             topic={state.topic}
             language={language}
             isGenerating={state.status === StoryStatus.GENERATING}
+            storyKey={ttsStoryKey}
             onProgress={setTtsOffset}
             startFromOffset={startFromOffset}
           />
