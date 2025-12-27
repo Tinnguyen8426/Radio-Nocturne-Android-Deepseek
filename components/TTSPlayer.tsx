@@ -63,6 +63,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
 
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const latestTextRef = useRef(text);
+  const lastTextLengthRef = useRef(text.length);
   const offsetRef = useRef(0);
   const generatingRef = useRef(isGenerating);
   const mapperRef = useRef<number[]>([]);
@@ -409,13 +410,30 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
 
   useEffect(() => {
     latestTextRef.current = text;
-    if (waitsForNextChunk && text.length > offsetRef.current) {
+    const hasNewContent = text.length > lastTextLengthRef.current;
+    if (waitsForNextChunk && hasNewContent) {
       setWaitsForNextChunk(false);
-      if (isPlaying && !isPaused) {
+    }
+
+    if (hasNewContent && generatingRef.current && !isPaused) {
+      if (!isPlaying || waitsForNextChunk) {
         speakFromOffset(offsetRef.current);
+      } else if (isNativeAndroid) {
+        BackgroundTts.stop().catch(() => undefined);
+        void speakFromOffsetNative(offsetRef.current);
       }
     }
-  }, [text, waitsForNextChunk, isPlaying, isPaused, speakFromOffset]);
+
+    lastTextLengthRef.current = text.length;
+  }, [
+    isNativeAndroid,
+    isPaused,
+    isPlaying,
+    speakFromOffset,
+    speakFromOffsetNative,
+    text,
+    waitsForNextChunk,
+  ]);
 
   useEffect(() => {
     nativeSpeakRef.current = (offset?: number) => {
