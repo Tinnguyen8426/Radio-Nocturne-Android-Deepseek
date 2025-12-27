@@ -43,7 +43,7 @@ public class BackgroundTtsService extends Service {
 
     private static final String CHANNEL_ID = "radio_nocturne_tts";
     private static final int NOTIFICATION_ID = 3103;
-    private static final int CHUNK_GRANULARITY = 700;
+    private static final int CHUNK_GRANULARITY = 420;
 
     private final IBinder binder = new LocalBinder();
     private final CopyOnWriteArrayList<TtsEventListener> listeners = new CopyOnWriteArrayList<>();
@@ -385,12 +385,12 @@ public class BackgroundTtsService extends Service {
         int maxEnd = Math.min(source.length(), start + CHUNK_GRANULARITY);
         if (start >= maxEnd) return start;
 
-        String slice = source.substring(start, maxEnd);
-        int newlineIdx = slice.lastIndexOf('\n');
-        if (newlineIdx > 80) {
-            return start + newlineIdx + 1;
+        int newlineIdx = source.indexOf('\n', start);
+        if (newlineIdx >= 0 && newlineIdx + 1 <= maxEnd) {
+            return newlineIdx + 1;
         }
 
+        String slice = source.substring(start, maxEnd);
         int punctuationIdx = -1;
         for (int i = 0; i < slice.length() - 1; i++) {
             char current = slice.charAt(i);
@@ -399,7 +399,7 @@ public class BackgroundTtsService extends Service {
                 punctuationIdx = i + 2;
             }
         }
-        if (punctuationIdx > 120) {
+        if (punctuationIdx > 80) {
             return start + punctuationIdx;
         }
         return maxEnd;

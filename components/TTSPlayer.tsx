@@ -26,7 +26,7 @@ interface TTSPlayerProps {
   onProgress?: (offset: number) => void;
 }
 
-const CHUNK_GRANULARITY = 700;
+const CHUNK_GRANULARITY = 420;
 const NOW_PLAYING_ACTION = 'tts-controls';
 const NOW_PLAYING_NOTIFICATION_ID = 4242;
 const describeError = (err: unknown) => {
@@ -198,12 +198,12 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     const maxEnd = Math.min(source.length, start + CHUNK_GRANULARITY);
     if (start >= maxEnd) return start;
 
-    const slice = source.slice(start, maxEnd);
-    const newlineIdx = slice.lastIndexOf('\n');
-    if (newlineIdx > 80) {
-      return start + newlineIdx + 1;
+    const nextNewline = source.indexOf('\n', start);
+    if (nextNewline >= 0 && nextNewline + 1 <= maxEnd) {
+      return nextNewline + 1;
     }
 
+    const slice = source.slice(start, maxEnd);
     const punctuationRegex = /[.!?]\s/g;
     let punctuationIdx = -1;
     let match: RegExpExecArray | null;
@@ -211,7 +211,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       punctuationIdx = match.index + match[0].length;
     }
 
-    if (punctuationIdx > 120) {
+    if (punctuationIdx > 80) {
       return start + punctuationIdx;
     }
 
@@ -445,14 +445,8 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       setWaitsForNextChunk(false);
     }
 
-    if (hasNewContent && generatingRef.current && !isPaused) {
-      if (!isPlaying || wasWaitingForChunk || noActiveSpeech) {
-        speakFromOffset(offsetRef.current);
-      } else if (isNativeAndroid) {
-        BackgroundTts.stop().catch(() => undefined);
-        nativeSpeakingRef.current = false;
-        void speakFromOffsetNative(offsetRef.current);
-      }
+    if (hasNewContent && generatingRef.current && !isPaused && (!isPlaying || wasWaitingForChunk || noActiveSpeech)) {
+      speakFromOffset(offsetRef.current);
     }
 
     lastTextLengthRef.current = text.length;
