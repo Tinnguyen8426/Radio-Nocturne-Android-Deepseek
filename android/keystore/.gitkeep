@@ -1,0 +1,2 @@
+# This file ensures the android/keystore directory is tracked by git
+# while keystore files themselves are gitignored
