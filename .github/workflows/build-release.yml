@@ -12,7 +12,7 @@ on:
         type: string
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '22'
   GRADLE_VERSION: '8.0'
 
 jobs:
