@@ -22,6 +22,8 @@ export interface StoryRecord {
   text: string;
   createdAt: string;
   isFavorite: boolean;
+  lastOffset: number;
+  lastProgressAt?: string;
 }
 
 export const GENRE_PROMPTS: Record<Language, string[]> = {

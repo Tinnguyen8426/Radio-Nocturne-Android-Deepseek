@@ -4,7 +4,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite';
 import type { Language, StoryRecord } from '../types';
 
 const DB_NAME = 'radio_nocturne';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const TABLE_NAME = 'stories';
 const WEB_KEY = 'radio_nocturne_stories_v1';
 
@@ -27,6 +27,8 @@ const mapRow = (row: Record<string, any>): StoryRecord => ({
   text: String(row.text || ''),
   createdAt: String(row.created_at || ''),
   isFavorite: Boolean(row.is_favorite),
+  lastOffset: Number(row.last_offset || 0),
+  lastProgressAt: row.last_progress_at ? String(row.last_progress_at) : undefined,
 });
 
 const readWebStories = (): StoryRecord[] => {
@@ -42,6 +44,8 @@ const readWebStories = (): StoryRecord[] => {
       text: String(item.text || ''),
       createdAt: String(item.createdAt || ''),
       isFavorite: Boolean(item.isFavorite),
+      lastOffset: Number(item.lastOffset || 0),
+      lastProgressAt: item.lastProgressAt ? String(item.lastProgressAt) : undefined,
     }));
   } catch {
     return [];
@@ -67,9 +71,21 @@ const ensureDb = async () => {
         language TEXT NOT NULL,
         text TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        is_favorite INTEGER NOT NULL DEFAULT 0
+        is_favorite INTEGER NOT NULL DEFAULT 0,
+        last_offset INTEGER NOT NULL DEFAULT 0,
+        last_progress_at TEXT
       );`
     );
+    try {
+      await db.execute(`ALTER TABLE ${TABLE_NAME} ADD COLUMN last_offset INTEGER NOT NULL DEFAULT 0;`);
+    } catch {
+      // Column already exists
+    }
+    try {
+      await db.execute(`ALTER TABLE ${TABLE_NAME} ADD COLUMN last_progress_at TEXT;`);
+    } catch {
+      // Column already exists
+    }
   }
   return db;
 };
@@ -107,6 +123,8 @@ export const saveStory = async (input: {
     text: input.text,
     createdAt: new Date().toISOString(),
     isFavorite: false,
+    lastOffset: 0,
+    lastProgressAt: undefined,
   };
 
   if (!isNative) {
@@ -119,8 +137,8 @@ export const saveStory = async (input: {
   const database = await ensureDb();
   if (!database) return record;
   await database.run(
-    `INSERT INTO ${TABLE_NAME} (id, topic, language, text, created_at, is_favorite)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ${TABLE_NAME} (id, topic, language, text, created_at, is_favorite, last_offset, last_progress_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       record.id,
       record.topic,
@@ -128,6 +146,8 @@ export const saveStory = async (input: {
       record.text,
       record.createdAt,
       record.isFavorite ? 1 : 0,
+      record.lastOffset,
+      record.lastProgressAt ?? null,
     ]
   );
   return record;
@@ -147,5 +167,24 @@ export const setStoryFavorite = async (id: string, isFavorite: boolean) => {
   await database.run(
     `UPDATE ${TABLE_NAME} SET is_favorite = ? WHERE id = ?`,
     [isFavorite ? 1 : 0, id]
+  );
+};
+
+export const updateStoryProgress = async (id: string, offset: number) => {
+  const now = new Date().toISOString();
+  if (!isNative) {
+    const stories = readWebStories();
+    const next = stories.map((story) =>
+      story.id === id ? { ...story, lastOffset: Math.max(0, offset), lastProgressAt: now } : story
+    );
+    writeWebStories(next);
+    return;
+  }
+
+  const database = await ensureDb();
+  if (!database) return;
+  await database.run(
+    `UPDATE ${TABLE_NAME} SET last_offset = ?, last_progress_at = ? WHERE id = ?`,
+    [Math.max(0, offset), now, id]
   );
 };
