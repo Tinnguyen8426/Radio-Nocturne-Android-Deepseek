@@ -143,23 +143,6 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   }, [isGenerating]);
 
   useEffect(() => {
-    const startedGenerating = isGenerating && !prevGeneratingRef.current;
-    prevGeneratingRef.current = isGenerating;
-
-    if (!startedGenerating) return;
-    if (!speechSupported) return;
-
-    // Auto-arm playback so the first chunks stream without extra taps
-    setIsPaused(false);
-    setIsPlaying(true);
-    if (latestTextRef.current.trim().length) {
-      speakFromOffset(offsetRef.current);
-    } else {
-      setWaitsForNextChunk(true);
-    }
-  }, [isGenerating, offsetRef, speakFromOffset, speechSupported]);
-
-  useEffect(() => {
     if (!isNativeAndroid) return;
     BackgroundTts.isSupported()
       .then(({ supported }) => setNativeSupported(Boolean(supported)))
@@ -430,6 +413,23 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     },
     [isNativeAndroid, speakFromOffsetNative, speakFromOffsetWeb]
   );
+
+  useEffect(() => {
+    const startedGenerating = isGenerating && !prevGeneratingRef.current;
+    prevGeneratingRef.current = isGenerating;
+
+    if (!startedGenerating) return;
+    if (!speechSupported) return;
+
+    // Auto-arm playback so the first chunks stream without extra taps
+    setIsPaused(false);
+    setIsPlaying(true);
+    if (latestTextRef.current.trim().length) {
+      speakFromOffset(offsetRef.current);
+    } else {
+      setWaitsForNextChunk(true);
+    }
+  }, [isGenerating, speechSupported, speakFromOffset]);
 
   useEffect(() => {
     latestTextRef.current = text;
