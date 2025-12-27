@@ -67,6 +67,18 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
+      - name: Setup keystore (Release)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release'
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > android/keystore/keystore.jks
+          cat > android/keystore/keystore.properties << EOF
+          storeFile=keystore.jks
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
       - name: Build APK (Debug)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'debug' || github.event_name != 'workflow_dispatch'
         run: |
@@ -83,18 +95,6 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Setup keystore (Release)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release'
-        run: |
-          mkdir -p android/keystore
-          echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > android/keystore/keystore.jks
-          cat > android/keystore/keystore.properties << EOF
-          storeFile=keystore.jks
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          EOF
 
       - name: Upload APK (Debug)
         if: always()
