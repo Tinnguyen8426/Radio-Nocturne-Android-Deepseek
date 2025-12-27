@@ -5,6 +5,7 @@ const KEY_BACKGROUND = 'allowBackgroundGeneration';
 const KEY_PERSONALIZATION = 'storyPersonalization';
 const KEY_STORY_MODEL = 'storyModel';
 const KEY_REUSE_CACHE = 'reuseStoryCache';
+const KEY_STORY_TEMPERATURE = 'storyTemperature';
 
 export type NarrativeStyle = 'default' | 'confession' | 'dossier' | 'diary' | 'investigation';
 export type StoryModel = 'deepseek-chat' | 'deepseek-reasoner';
@@ -21,6 +22,10 @@ export const TARGET_MIN_WORDS = 2000;
 export const TARGET_MAX_WORDS = 10000;
 export const TARGET_MIN_OFFSET = 700;
 export const TARGET_MAX_OFFSET = 800;
+
+const DEFAULT_STORY_TEMPERATURE = 1.6;
+const MIN_TEMPERATURE = 0.1;
+const MAX_TEMPERATURE = 2.0;
 
 const NARRATIVE_STYLES: NarrativeStyle[] = [
   'default',
@@ -153,4 +158,29 @@ export const setStoryModel = async (value: StoryModel) => {
     return;
   }
   await Preferences.set({ key: KEY_STORY_MODEL, value: normalized });
+};
+
+export const getStoryTemperature = async (): Promise<number> => {
+  const defaultValue = Number(import.meta.env.VITE_STORY_TEMPERATURE || DEFAULT_STORY_TEMPERATURE);
+  
+  if (!Capacitor.isNativePlatform()) {
+    const raw = localStorage.getItem(KEY_STORY_TEMPERATURE);
+    if (!raw) return defaultValue;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? clamp(parsed, MIN_TEMPERATURE, MAX_TEMPERATURE) : defaultValue;
+  }
+  
+  const { value } = await Preferences.get({ key: KEY_STORY_TEMPERATURE });
+  if (!value) return defaultValue;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clamp(parsed, MIN_TEMPERATURE, MAX_TEMPERATURE) : defaultValue;
+};
+
+export const setStoryTemperature = async (value: number) => {
+  const normalized = clamp(value, MIN_TEMPERATURE, MAX_TEMPERATURE);
+  if (!Capacitor.isNativePlatform()) {
+    localStorage.setItem(KEY_STORY_TEMPERATURE, String(normalized));
+    return;
+  }
+  await Preferences.set({ key: KEY_STORY_TEMPERATURE, value: String(normalized) });
 };

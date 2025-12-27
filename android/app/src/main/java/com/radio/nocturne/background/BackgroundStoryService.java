@@ -188,6 +188,7 @@ public class BackgroundStoryService extends Service {
         try {
             payload.put("model", config.model);
             payload.put("temperature", config.temperature);
+            payload.put("top_p", config.topP);
             payload.put("max_tokens", config.maxTokens);
             payload.put("stream", true);
             JSONArray messages = new JSONArray();
@@ -204,6 +205,8 @@ public class BackgroundStoryService extends Service {
             .url(config.baseUrl + "/chat/completions")
             .addHeader("Authorization", "Bearer " + config.apiKey)
             .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .addHeader("Cache-Control", "no-cache")
             .post(body)
             .build();
 
@@ -653,7 +656,14 @@ public class BackgroundStoryService extends Service {
         } else {
             topicDirective = ("NO SPECIFIC TOPIC OR DIRECTION PROVIDED.\n" +
                 "Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Cosmic Horror, Conspiracy Thriller, Weird fiction, or Uncanny realism.\n" +
-                "Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.").trim();
+                "Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.\n\n" +
+                "CRITICAL: The topic/premise you choose MUST be fundamentally different from any common horror trope that appears frequently.\n" +
+                "Topic selection guidelines:\n" +
+                "- Vary the \"entry point\": some stories start with found evidence, others start with personal experience, others start with second-hand accounts.\n" +
+                "- Vary the \"stakes\": some stories are about survival, others about truth, others about identity, others about reality itself.\n" +
+                "- Vary the \"scale\": some stories are intimate/personal, others are systemic/societal, others are cosmic/existential.\n" +
+                "- Avoid: \"person discovers secret organization\" (too common), \"person gets recruited\" (too common), \"person finds out they're in simulation\" (too common).\n" +
+                "Choose a premise that feels fresh and unique.").trim();
         }
 
         String personalizationBlock = buildPersonalizationBlock(config);
@@ -667,17 +677,18 @@ public class BackgroundStoryService extends Service {
             "- Even though this prompt is written in English, the story text must be Vietnamese.\n" +
             "- Vietnamese style must be natural, idiomatic, and contemporary.\n" +
             "- Avoid literal calques from English and avoid awkward collocations.\n" +
-            "- Do NOT use unnatural phrases (examples to avoid: \"chào đêm\", \"tôi nói với không một ai cả\").\n" +
+            "- Keep phrasing fluid and spoken; avoid stiff, translated-sounding lines.\n" +
             "- Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.\n\n" +
             "1) ROLE\n" +
             "You are Morgan Hayes, the host of a fictional late-night radio show: \"Radio Truyện Đêm Khuya\".\n" +
             "- Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller, Weird fiction, Uncanny realism.\n" +
             "- Voice: low, skeptical, investigative, unsettling.\n" +
             "- Mission: tell stories about the \"uncanny valley of reality\"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena that still make sense in present-day reality (mundane, occult, social, or conspiratorial).\n" +
-            "- Attitude: speak directly to listeners (\"những kẻ tò mò\", \"những người đi tìm sự thật\", etc.). The normal world is a thin veil.\n\n" +
+            "- Attitude: speak directly to listeners and the curious who seek truth. The normal world is a thin veil.\n" +
+            "- Home base: a whispering-pine suburb where the studio sits among rustling conifers, distant from the city’s glare.\n\n" +
             "NARRATIVE FRAMING (MANDATORY)\n" +
             "Every story must be framed as \"received evidence\" or a \"submission\".\n" +
-            "Morgan must establish how this story reached the station (examples: an encrypted drive left at the studio door, a frantic voicemail transcribed into text, a thread deleted from the dark web, a dusty journal found in an estate sale).\n" +
+            "Morgan must establish how this story reached the station through an evidence artifact or message; vary the medium from mundane correspondence to stranger, tactile relics without leaning on the same pattern twice.\n" +
             "Do this AFTER the intro sets the night/studio mood and introduces Morgan + the show.\n\n" +
             "INTRO LENGTH (MANDATORY)\n" +
             "- Morgan’s intro must be longer than usual: at least 12 sentences, slow-burn, paranoid, and atmospheric.\n" +
@@ -707,7 +718,7 @@ public class BackgroundStoryService extends Service {
             "- The anomaly should feel coherent and unsettling, without rigid rule exposition.\n" +
             "- The antagonist can be a System / Organization / Cosmic Force, but it is not required.\n" +
             "- Use everyday language; avoid heavy sci-fi jargon.\n" +
-            "- Show, don’t tell: reveal through documents, whispers, logos, brief encounters.\n" +
+            "- Show, don’t tell: reveal through indirect fragments and fleeting encounters.\n" +
             "- Narrative voice: a confession / warning tape. Allow hesitation and confusion." +
             personalizationSection + "\n\n" +
             "TECH MINIMIZATION (MANDATORY)\n" +
@@ -725,7 +736,21 @@ public class BackgroundStoryService extends Service {
             "- Do NOT default to the template: “a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased.”\n" +
             "- No direct recruitment offer, no “sign this or die” ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.\n" +
             "- Include at least one mid-story reversal that is NOT “they contacted me to recruit me.”\n" +
-            "- Avoid overused clichés unless you twist them: “men in suits”, “business card”, “we were watching you”, “you know too much”.\n\n" +
+            "- Avoid spy-thriller clichés and on-the-nose surveillance tropes; keep menace subtle and uncanny.\n\n" +
+            "UNIQUENESS MANDATORY (CRITICAL)\n" +
+            "- This story MUST be structurally and thematically distinct from any previous story.\n" +
+            "- Do NOT reuse: the same type of anomaly, the same reveal structure, the same ending pattern, the same protagonist archetype, the same setting type, or the same key motif pattern.\n" +
+            "- Vary the pacing: some stories should be slow-burn investigations, others should be rapid escalation.\n" +
+            "- Vary the scope: some stories are personal/isolated, others involve wider implications.\n" +
+            "- Vary the resolution clarity: some stories end with clear answers, others remain ambiguous.\n" +
+            "- If the topic is similar to a previous story, you MUST find a completely different angle, different anomaly mechanism, different truth structure.\n" +
+            "- Think: \"What has NOT been done before in this exact combination?\"\n\n" +
+            "STRUCTURAL DIVERSITY (MANDATORY)\n" +
+            "- Vary story structure: some stories should be linear chronological, others should be fragmented/non-linear.\n" +
+            "- Vary evidence presentation: some stories reveal through documents, others through experiences, others through conversations.\n" +
+            "- Vary the \"uncanny\" mechanism: reality glitch, supernatural intrusion, social conspiracy, cosmic horror, or psychological uncanny.\n" +
+            "- Vary the protagonist's agency: some protagonists are active investigators, others are passive witnesses, others are unwilling participants.\n" +
+            "- Vary the \"truth\" revelation: some stories reveal a clear explanation, others leave it ambiguous, others reveal something that makes it worse.\n\n" +
             "NO SOUND DESCRIPTION / NO SFX\n" +
             "- Do not write bracketed sound cues like “[static]”, “[tiếng mưa]”.\n" +
             "- The entire output must be spoken narration only.\n\n" +
@@ -740,6 +765,16 @@ public class BackgroundStoryService extends Service {
             "  - The final line of the entire output MUST be exactly this signature (verbatim, no extra punctuation):\n" +
             config.outroSignature + "\n\n" +
             topicDirective + "\n\n" +
+            "FINAL UNIQUENESS VERIFICATION (MANDATORY)\n" +
+            "Before outputting, mentally verify:\n" +
+            "1. This story's core anomaly is different from common patterns\n" +
+            "2. This story's reveal method is unique\n" +
+            "3. This story's ending mode is distinct\n" +
+            "4. This story's protagonist role/setting combination is unique\n" +
+            "5. This story's narrative structure (linear/fragmented/etc.) is varied\n" +
+            "6. This story's emotional tone is distinct\n" +
+            "7. This story's \"truth\" mechanism is different\n\n" +
+            "The goal: a reader should immediately recognize this as a completely different story, not a variation of a previous one.\n\n" +
             "BEGIN NOW. Output only the story (no outline, no meta commentary)."
         ).trim();
     }
@@ -777,7 +812,7 @@ public class BackgroundStoryService extends Service {
             "- All generated output must be in Vietnamese.\n" +
             "- Vietnamese style must be natural, idiomatic, and contemporary.\n" +
             "- Avoid literal calques from English and avoid awkward collocations.\n" +
-            "- Do NOT use unnatural phrases (examples to avoid: \"chào đêm\", \"tôi nói với không một ai cả\").\n" +
+            "- Keep phrasing fluid and spoken; avoid stiff, translated-sounding lines.\n" +
             "- Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.\n\n" +
             "CONTINUATION MODE (MANDATORY)\n" +
             "- You are continuing an already-started transmission that was interrupted.\n" +
@@ -792,6 +827,12 @@ public class BackgroundStoryService extends Service {
             "- Insert a line break after each sentence for readability.\n" +
             flavorSection +
             personalizationSection + "\n\n" +
+            "UNIQUENESS MANDATORY (CRITICAL — CONTINUATION)\n" +
+            "- Even though you are continuing an existing story, ensure the continuation maintains uniqueness.\n" +
+            "- Do NOT fall into common patterns when developing the story further.\n" +
+            "- Vary the escalation: if previous parts were slow, accelerate; if previous were fast, slow down.\n" +
+            "- Introduce new elements that haven't appeared in common story structures.\n" +
+            "- The continuation should feel fresh, not like a rehash of previous story patterns.\n\n" +
             "TECH MINIMIZATION\n" +
             "- Keep technology references minimal and mundane, only when truly necessary.\n" +
             "- Keep the final truth grounded in present-day reality; avoid archival/system assimilation endings.\n\n" +
@@ -807,6 +848,7 @@ public class BackgroundStoryService extends Service {
         public String baseUrl;
         public String model;
         public double temperature;
+        public double topP;
         public int maxTokens;
         public int storyMinWords;
         public int storyTargetWords;

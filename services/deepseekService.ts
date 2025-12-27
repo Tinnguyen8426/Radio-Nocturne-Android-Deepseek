@@ -7,6 +7,7 @@ import {
   getAllowBackgroundGeneration,
   getStoryModel,
   getStoryPersonalization,
+  getStoryTemperature,
   TARGET_MAX_OFFSET,
   TARGET_MAX_WORDS,
   TARGET_MIN_OFFSET,
@@ -26,7 +27,9 @@ const BASE_URL = (
 ).replace(/\/$/, "");
 const DEFAULT_MAX_TOKENS = Number(import.meta.env.VITE_DEEPSEEK_MAX_TOKENS || 8192);
 const TOPIC_MODEL = "deepseek-chat";
-const STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.5);
+// STORY_TEMPERATURE is now loaded from settings, keeping this as fallback for native
+const DEFAULT_STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.6);
+const STORY_TOP_P = Number(import.meta.env.VITE_STORY_TOP_P || 0.95);
 const STORY_TIMEOUT_MS = Number(import.meta.env.VITE_STORY_TIMEOUT_MS || 12 * 60 * 1000);
 const STORY_CONTEXT_WORDS = Number(import.meta.env.VITE_STORY_CONTEXT_WORDS || 320);
 const STORY_MAX_PASSES = Number(import.meta.env.VITE_STORY_MAX_PASSES || 6);
@@ -231,6 +234,8 @@ const STORY_INTRO_MOODS = [
 ];
 
 let lastFlavorKey: string | null = null;
+const flavorHistoryRef: string[] = [];
+const MAX_FLAVOR_HISTORY = 20;
 
 const createSeededRandom = (seed: number) => {
   let state = seed >>> 0;
@@ -256,6 +261,8 @@ const selectStoryFlavor = (seedText?: string): StoryFlavor => {
   const random = seedText ? createSeededRandom(hashString(seedText)) : Math.random;
   let flavor: StoryFlavor;
   let attempts = 0;
+  const maxAttempts = seedText ? 10 : 20;
+  
   do {
     flavor = {
       engine: pickFrom(STORY_ENGINES, random),
@@ -269,16 +276,30 @@ const selectStoryFlavor = (seedText?: string): StoryFlavor => {
       keyMotif: pickFrom(STORY_MOTIFS, random),
       introMood: pickFrom(STORY_INTRO_MOODS, random),
     };
+    
+    const flavorKey = `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`;
+    
     attempts += 1;
-  } while (
-    !seedText &&
-    attempts < 6 &&
-    lastFlavorKey ===
-      `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`
-  );
-  if (!seedText) {
-    lastFlavorKey = `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`;
-  }
+    
+    // Check với cả history, không chỉ last flavor
+    if (!seedText && flavorHistoryRef.includes(flavorKey)) {
+      continue; // Thử lại với flavor khác
+    }
+    
+    // Nếu không trùng hoặc đã thử quá nhiều lần, break
+    if (seedText || !flavorHistoryRef.includes(flavorKey) || attempts >= maxAttempts) {
+      if (!seedText) {
+        flavorHistoryRef.push(flavorKey);
+        // Giữ chỉ MAX_FLAVOR_HISTORY flavor gần nhất
+        if (flavorHistoryRef.length > MAX_FLAVOR_HISTORY) {
+          flavorHistoryRef.shift();
+        }
+        lastFlavorKey = flavorKey;
+      }
+      break;
+    }
+  } while (attempts < maxAttempts);
+  
   return flavor;
 };
 
@@ -313,10 +334,26 @@ const buildCacheAvoidanceBlock = (anchors: string[]) => {
   if (!anchors.length) return "";
   const lines = anchors.map((anchor, index) => `(${index + 1}) ${anchor}`).join("\n");
   return `
-CACHE DIVERSITY ANCHORS (MANDATORY)
+CACHE DIVERSITY ANCHORS (MANDATORY — CRITICAL FOR UNIQUENESS)
 - These are brief anchors from previously generated stories stored on-device.
 - Do NOT reuse their premises, anomalies, reveal structures, key motifs, or endings.
+- Do NOT use similar protagonist roles, settings, or evidence origins.
+- Do NOT follow the same narrative arc or pacing structure.
+- If a previous story involved [X], your story must involve something fundamentally different from [X].
+- Vary the emotional tone: if previous was clinical, make this one intimate; if previous was paranoid, make this one elegiac.
+- Vary the scale: if previous was personal, make this one systemic; if previous was local, make this one cosmic.
+- The goal is ZERO structural similarity to any previous story.
 ${lines}
+
+ANTI-PATTERN CHECKLIST (MANDATORY)
+Before writing, verify your story does NOT:
+1. Use the same anomaly type as any anchor above
+2. Use the same reveal method as any anchor above  
+3. Use the same ending mode as any anchor above
+4. Follow the same plot structure as any anchor above
+5. Use similar protagonist role/setting combination as any anchor above
+
+If your story would match ANY of the above, you MUST change fundamental elements until it is unique.
 `.trim();
 };
 
@@ -337,12 +374,15 @@ const streamChatCompletion = async (
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
+      Accept: "text/event-stream",
+      "Cache-Control": "no-cache",
     },
     signal,
     body: JSON.stringify({
       model,
       messages,
       temperature,
+      top_p: STORY_TOP_P,
       max_tokens: maxTokens,
       stream: true,
     }),
@@ -435,6 +475,19 @@ USER INPUT (TOPIC OR STORY DIRECTION):
 NO SPECIFIC TOPIC OR DIRECTION PROVIDED.
 Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Cosmic Horror, Conspiracy Thriller, Weird fiction, or Uncanny realism.
 Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.
+
+CRITICAL: The topic/premise you choose MUST be fundamentally different from:
+- Any topic in the cache anchors above
+- Any common horror trope that appears frequently
+- Any premise that would lead to a similar structure as previous stories
+
+Topic selection guidelines:
+- Vary the "entry point": some stories start with found evidence, others start with personal experience, others start with second-hand accounts
+- Vary the "stakes": some stories are about survival, others about truth, others about identity, others about reality itself
+- Vary the "scale": some stories are intimate/personal, others are systemic/societal, others are cosmic/existential
+- Avoid: "person discovers secret organization" (too common), "person gets recruited" (too common), "person finds out they're in simulation" (too common)
+
+Choose a premise that feels fresh and has not been explored in the cache anchors.
 `.trim();
 
   return `
@@ -445,7 +498,7 @@ OUTPUT LANGUAGE (MANDATORY)
 - Even though this prompt is written in English, the story text must be Vietnamese.
 - Vietnamese style must be natural, idiomatic, and contemporary.
 - Avoid literal calques from English and avoid awkward collocations.
-- Do NOT use unnatural phrases (examples to avoid: "chào đêm", "tôi nói với không một ai cả").
+- Keep phrasing fluid and spoken; avoid stiff, translated-sounding lines.
 - Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.
 
 1) ROLE
@@ -453,11 +506,12 @@ You are Morgan Hayes, the host of a fictional late-night radio show: "Radio Truy
 - Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller, Weird fiction, Uncanny realism.
 - Voice: low, skeptical, investigative, unsettling.
 - Mission: tell stories about the "uncanny valley of reality"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena that still make sense in present-day reality (mundane, occult, social, or conspiratorial).
-- Attitude: speak directly to listeners (\"những kẻ tò mò\", \"những người đi tìm sự thật\", etc.). The normal world is a thin veil.
+- Attitude: speak directly to listeners and the curious who seek truth. The normal world is a thin veil.
+- Home base: a whispering-pine suburb where the studio sits among rustling conifers, distant from the city’s glare.
 
 NARRATIVE FRAMING (MANDATORY)
 Every story must be framed as "received evidence" or a "submission".
-Morgan must establish how this story reached the station (examples: an encrypted drive left at the studio door, a frantic voicemail transcribed into text, a thread deleted from the dark web, a dusty journal found in an estate sale).
+Morgan must establish how this story reached the station through an evidence artifact or message; vary the medium from mundane correspondence to stranger, tactile relics without leaning on the same pattern twice.
 Do this AFTER the intro sets the night/studio mood and introduces Morgan + the show.
 
 INTRO LENGTH (MANDATORY)
@@ -494,7 +548,7 @@ CONTENT GUIDELINES
 - The anomaly should feel coherent and unsettling, without rigid rule exposition.
 - The antagonist can be a System / Organization / Cosmic Force, but it is not required.
 - Use everyday language; avoid heavy sci-fi jargon.
-- Show, don’t tell: reveal through documents, whispers, logos, brief encounters.
+- Show, don’t tell: reveal through indirect fragments and fleeting encounters.
 - Narrative voice: a confession / warning tape. Allow hesitation and confusion.${personalizationSection}
 
 TECH MINIMIZATION (MANDATORY)
@@ -511,10 +565,37 @@ PRESENT-DAY TRUTH (MANDATORY)
 DIVERSITY REQUIREMENTS (MANDATORY — AVOID REPETITION)
 - Use the following randomized selections exactly as written (do NOT override them):
 ${flavorSection}${cacheSection}
-- Do NOT default to the template: “a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased.”
-- No direct recruitment offer, no “sign this or die” ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.
-- Include at least one mid-story reversal that is NOT “they contacted me to recruit me.”
-- Avoid overused clichés unless you twist them: “men in suits”, “business card”, “we were watching you”, “you know too much”.
+- Do NOT default to the template: "a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased."
+- No direct recruitment offer, no "sign this or die" ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.
+- Include at least one mid-story reversal that is NOT "they contacted me to recruit me."
+- Avoid spy-thriller clichés and on-the-nose surveillance tropes; keep menace subtle and uncanny.
+
+UNIQUENESS MANDATORY (CRITICAL)
+- This story MUST be structurally and thematically distinct from any previous story.
+- Do NOT reuse:
+  * The same type of anomaly (if previous was "missing door", use different anomaly type)
+  * The same reveal structure (if previous was "leaked minutes", use different reveal method)
+  * The same ending pattern (if previous was "memory overwrite", use different ending)
+  * The same protagonist archetype (vary roles, backgrounds, motivations)
+  * The same setting type (if previous was apartment, use different setting category)
+  * The same key motif pattern (if previous was "symbol drawn", use different motif type)
+- Vary the pacing: some stories should be slow-burn investigations, others should be rapid escalation
+- Vary the scope: some stories are personal/isolated, others involve wider implications
+- Vary the resolution clarity: some stories end with clear answers, others remain ambiguous
+- If the topic is similar to a previous story, you MUST find a completely different angle, different anomaly mechanism, different truth structure
+- Think: "What has NOT been done before in this exact combination?"
+
+STRUCTURAL DIVERSITY (MANDATORY)
+- Vary story structure: some stories should be linear chronological, others should be fragmented/non-linear
+- Vary evidence presentation: some stories reveal through documents, others through experiences, others through conversations
+- Vary the "uncanny" mechanism: 
+  * Some stories: reality glitch (things don't add up)
+  * Some stories: supernatural intrusion (something breaks through)
+  * Some stories: social conspiracy (systematic manipulation)
+  * Some stories: cosmic horror (scale beyond comprehension)
+  * Some stories: psychological uncanny (mind/identity distortion)
+- Vary the protagonist's agency: some protagonists are active investigators, others are passive witnesses, others are unwilling participants
+- Vary the "truth" revelation: some stories reveal a clear explanation, others leave it ambiguous, others reveal something that makes it worse
 
 NO SOUND DESCRIPTION / NO SFX
 - Do not write bracketed sound cues like “[static]”, “[tiếng mưa]”.
@@ -532,6 +613,20 @@ SPECIAL REQUIREMENTS
 ${OUTRO_SIGNATURE}
 
 ${topicDirective}
+
+FINAL UNIQUENESS VERIFICATION (MANDATORY)
+Before outputting, mentally verify:
+1. This story's core anomaly is different from any cache anchor
+2. This story's reveal method is different from any cache anchor  
+3. This story's ending mode is different from any cache anchor
+4. This story's protagonist role/setting combination is unique
+5. This story's narrative structure (linear/fragmented/etc.) is varied
+6. This story's emotional tone is distinct
+7. This story's "truth" mechanism is different
+
+If ANY of the above would match a cache anchor, you MUST modify fundamental elements until the story is unique.
+
+The goal: a reader who has read previous stories should immediately recognize this as a completely different story, not a variation of a previous one.
 
 BEGIN NOW. Output only the story (no outline, no meta commentary).
 `.trim();
@@ -605,7 +700,7 @@ OUTPUT LANGUAGE (MANDATORY)
 - All generated output must be in Vietnamese.
 - Vietnamese style must be natural, idiomatic, and contemporary.
 - Avoid literal calques from English and avoid awkward collocations.
-- Do NOT use unnatural phrases (examples to avoid: "chào đêm", "tôi nói với không một ai cả").
+- Keep phrasing fluid and spoken; avoid stiff, translated-sounding lines.
 - Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.
 
 CONTINUATION MODE (MANDATORY)
@@ -628,6 +723,13 @@ STYLE & OUTPUT FORMAT
 - Insert a line break after each sentence for readability.
 ${flavorSection}${cacheSection}
 ${personalizationSection}
+
+UNIQUENESS MANDATORY (CRITICAL — CONTINUATION)
+- Even though you are continuing an existing story, ensure the continuation maintains uniqueness.
+- Do NOT fall into patterns from cache anchors when developing the story further.
+- Vary the escalation: if previous parts were slow, accelerate; if previous were fast, slow down.
+- Introduce new elements that haven't appeared in cache anchors.
+- The continuation should feel fresh, not like a rehash of previous story structures.
 
 TECH MINIMIZATION
 - Keep technology references minimal and mundane, only when truly necessary.
@@ -661,6 +763,7 @@ export const streamStoryWithControls = async (
   if (!apiKey) throw new Error("API Key is missing");
 
   const personalization = await getStoryPersonalization();
+  const storyTemperature = await getStoryTemperature();
   const lengthConfig = buildLengthConfig(personalization.targetWords);
   const storyModel = await getStoryModel();
   const flavorSeed =
@@ -691,7 +794,8 @@ export const streamStoryWithControls = async (
         apiKey,
         baseUrl: BASE_URL,
         model: storyModel,
-        temperature: STORY_TEMPERATURE,
+        temperature: storyTemperature,
+        topP: STORY_TOP_P,
         maxTokens: Math.max(4096, DEFAULT_MAX_TOKENS),
         storyMinWords: lengthConfig.minWords,
         storyTargetWords: lengthConfig.targetWords,
@@ -754,7 +858,7 @@ export const streamStoryWithControls = async (
     try {
       await streamChatCompletion(
         messages,
-        { temperature: STORY_TEMPERATURE, maxTokens, signal: controller.signal, model: storyModel },
+        { temperature: storyTemperature, maxTokens, signal: controller.signal, model: storyModel },
         apiKey,
         (chunk) => {
           if (!chunk || signatureReached) return;
@@ -850,6 +954,7 @@ const streamStoryNative = async (
     baseUrl: string;
     model: string;
     temperature: number;
+    topP: number;
     maxTokens: number;
     storyMinWords: number;
     storyTargetWords: number;
@@ -919,6 +1024,7 @@ const streamStoryNative = async (
       baseUrl: config.baseUrl,
       model: config.model,
       temperature: config.temperature,
+      topP: config.topP,
       maxTokens: config.maxTokens,
       storyMinWords: config.storyMinWords,
       storyTargetWords: config.storyTargetWords,
@@ -1034,5 +1140,60 @@ REQUIREMENTS:
   } catch (error) {
     console.error("Topic batch generation error:", error);
     return [];
+  }
+};
+
+export const generateStoryTitle = async (lang: Language, topic: string, storyText?: string): Promise<string> => {
+  const apiKey = await getResolvedApiKey();
+  if (!apiKey) throw new Error("API Key is missing");
+
+  // Nếu có topic, dùng topic làm tiêu đề
+  if (topic && topic.trim().length > 0) {
+    return topic.trim();
+  }
+
+  // Nếu không có topic, sinh tiêu đề từ đoạn đầu của truyện
+  if (!storyText || storyText.trim().length === 0) {
+    return lang === 'vi' ? 'Truyện không tên' : 'Untitled Story';
+  }
+
+  const prompt = lang === "vi"
+    ? `Dựa vào đoạn truyện sau, hãy tạo một tiêu đề ngắn gọn (tối đa 10 từ) cho truyện này. Tiêu đề phải gợi lên bí ẩn, siêu nhiên hoặc thuyết âm mưu.
+OUTPUT: Chỉ tiêu đề, không có giải thích thêm.
+\n\nĐoạn truyện:\n${storyText.slice(0, 500)}`
+    : `Based on the story excerpt below, create a short title (max 10 words) that evokes mystery, supernatural, or conspiracy themes.
+OUTPUT: Only the title, no explanation.
+\n\nStory excerpt:\n${storyText.slice(0, 500)}`;
+
+  try {
+    const response = await fetch(`${BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: TOPIC_MODEL,
+        messages: [
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 50,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`DeepSeek API error ${response.status}`);
+    }
+
+    const data = await response.json().catch(() => null);
+    const title = (data?.choices?.[0]?.message?.content?.trim()
+      || data?.choices?.[0]?.text?.trim()
+      || "").slice(0, 100);
+
+    return title || (lang === 'vi' ? 'Truyện không tên' : 'Untitled Story');
+  } catch (error) {
+    console.error("Story title generation error:", error);
+    return lang === 'vi' ? 'Truyện không tên' : 'Untitled Story';
   }
 };

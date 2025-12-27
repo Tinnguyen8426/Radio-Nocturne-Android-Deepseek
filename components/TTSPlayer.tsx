@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { Play, Pause, Headphones, Waves, SlidersHorizontal, X } from 'lucide-react';
+import { Play, Pause, Headphones, Waves, SlidersHorizontal, X, SkipBack, SkipForward } from 'lucide-react';
 import { Language } from '../types';
 import { BackgroundTts } from '../services/backgroundTts';
 
@@ -21,11 +21,12 @@ interface TTSPlayerProps {
   topic: string;
   language: Language;
   isGenerating: boolean;
+  storyKey: number;
   startFromOffset?: number;
   onProgress?: (offset: number) => void;
 }
 
-const CHUNK_GRANULARITY = 700;
+const CHUNK_GRANULARITY = 420;
 const NOW_PLAYING_ACTION = 'tts-controls';
 const NOW_PLAYING_NOTIFICATION_ID = 4242;
 const describeError = (err: unknown) => {
@@ -47,7 +48,7 @@ const describeError = (err: unknown) => {
 };
 
 const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
-  const { text, topic, language, isGenerating, startFromOffset = 0, onProgress } = props;
+  const { text, topic, language, isGenerating, storyKey, startFromOffset = 0, onProgress } = props;
   const [rate, setRate] = useState(1);
   const [pitch, setPitch] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -63,8 +64,10 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
 
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const latestTextRef = useRef(text);
+  const lastTextLengthRef = useRef(text.length);
   const offsetRef = useRef(0);
   const generatingRef = useRef(isGenerating);
+  const prevGeneratingRef = useRef(isGenerating);
   const mapperRef = useRef<number[]>([]);
   const nativeChunkRef = useRef<{
     utteranceId: string;
@@ -72,6 +75,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     chunkEnd: number;
     mapper: number[];
   } | null>(null);
+  const nativeSpeakingRef = useRef(false);
   const nativeSessionIdRef = useRef('');
   const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
   const nativeSpeakRef = useRef<(offset?: number) => void>(() => undefined);
@@ -194,12 +198,12 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     const maxEnd = Math.min(source.length, start + CHUNK_GRANULARITY);
     if (start >= maxEnd) return start;
 
-    const slice = source.slice(start, maxEnd);
-    const newlineIdx = slice.lastIndexOf('\n');
-    if (newlineIdx > 80) {
-      return start + newlineIdx + 1;
+    const nextNewline = source.indexOf('\n', start);
+    if (nextNewline >= 0 && nextNewline + 1 <= maxEnd) {
+      return nextNewline + 1;
     }
 
+    const slice = source.slice(start, maxEnd);
     const punctuationRegex = /[.!?]\s/g;
     let punctuationIdx = -1;
     let match: RegExpExecArray | null;
@@ -207,7 +211,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       punctuationIdx = match.index + match[0].length;
     }
 
-    if (punctuationIdx > 120) {
+    if (punctuationIdx > 80) {
       return start + punctuationIdx;
     }
 
@@ -236,6 +240,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       utteranceRef.current = null;
       mapperRef.current = [];
       nativeChunkRef.current = null;
+      nativeSpeakingRef.current = false;
       nativeSessionIdRef.current = '';
       setIsPlaying(false);
       setIsPaused(false);
@@ -260,6 +265,8 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       if (!remaining.trim().length) {
         updateOffset(start);
         if (generatingRef.current) {
+          setIsPlaying(true);
+          setIsPaused(false);
           setWaitsForNextChunk(true);
         } else {
           setIsPlaying(false);
@@ -347,6 +354,8 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       if (!remaining.trim().length) {
         updateOffset(start);
         if (generatingRef.current) {
+          setIsPlaying(true);
+          setIsPaused(false);
           setWaitsForNextChunk(true);
         } else {
           setIsPlaying(false);
@@ -364,6 +373,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
         const sessionId = `rn_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
         nativeSessionIdRef.current = sessionId;
         nativeChunkRef.current = null;
+        nativeSpeakingRef.current = true;
         await BackgroundTts.speak({
           text: source,
           rate: parseFloat(rate.toFixed(2)),
@@ -383,6 +393,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
             : 'Không thể khởi chạy TTS nền. Vui lòng thử lại.'
         );
         setIsPlaying(false);
+        nativeSpeakingRef.current = false;
       }
     },
     [
@@ -408,14 +419,67 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   );
 
   useEffect(() => {
+    const startedGenerating = isGenerating && !prevGeneratingRef.current;
+    prevGeneratingRef.current = isGenerating;
+
+    if (!startedGenerating) return;
+    if (!speechSupported) return;
+
+    // Auto-arm playback so the first chunks stream without extra taps
+    setIsPaused(false);
+    setIsPlaying(true);
+    if (latestTextRef.current.trim().length) {
+      speakFromOffset(offsetRef.current);
+    } else {
+      setWaitsForNextChunk(true);
+    }
+  }, [isGenerating, speechSupported, speakFromOffset]);
+
+  useEffect(() => {
     latestTextRef.current = text;
-    if (waitsForNextChunk && text.length > offsetRef.current) {
+    const hasNewContent = text.length > lastTextLengthRef.current;
+    const wasWaitingForChunk = waitsForNextChunk && hasNewContent;
+    const noActiveSpeech = isNativeAndroid ? !nativeSpeakingRef.current : !utteranceRef.current;
+    
+    // Check if we're near the end of current text and should continue with new content
+    const currentTextLength = latestTextRef.current.length;
+    const isNearEnd = currentTextLength > 0 && offsetRef.current >= Math.max(0, currentTextLength - 100);
+
+    if (wasWaitingForChunk) {
       setWaitsForNextChunk(false);
-      if (isPlaying && !isPaused) {
+    }
+
+    // During generation, ensure TTS continues when new content arrives
+    if (generatingRef.current && !isPaused && hasNewContent) {
+      // If not playing at all, start playing
+      if (!isPlaying) {
+        setIsPlaying(true);
+        speakFromOffset(offsetRef.current);
+      }
+      // If waiting for next chunk, continue
+      else if (wasWaitingForChunk) {
+        speakFromOffset(offsetRef.current);
+      }
+      // If no active speech (finished speaking), continue
+      else if (noActiveSpeech) {
+        speakFromOffset(offsetRef.current);
+      }
+      // If near end of current text, continue with new content
+      else if (isNearEnd) {
         speakFromOffset(offsetRef.current);
       }
     }
-  }, [text, waitsForNextChunk, isPlaying, isPaused, speakFromOffset]);
+
+    lastTextLengthRef.current = text.length;
+  }, [
+    isNativeAndroid,
+    isPaused,
+    isPlaying,
+    speakFromOffset,
+    speakFromOffsetNative,
+    text,
+    waitsForNextChunk,
+  ]);
 
   useEffect(() => {
     nativeSpeakRef.current = (offset?: number) => {
@@ -450,6 +514,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       if (typeof event?.nextOffset === 'number') {
         updateOffset(event.nextOffset);
       }
+      nativeSpeakingRef.current = false;
       if (typeof event?.isFinal === 'boolean') {
         if (event.isFinal) {
           const currentOffset = typeof event?.nextOffset === 'number' ? event.nextOffset : offsetRef.current;
@@ -468,6 +533,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       const newOffset = current.chunkEnd;
       updateOffset(newOffset);
       nativeChunkRef.current = null;
+      nativeSpeakingRef.current = false;
       if (latestTextRef.current.length > newOffset + 5) {
         nativeSpeakRef.current(newOffset);
       } else if (generatingRef.current) {
@@ -489,6 +555,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       setError(message);
       setIsPlaying(false);
       nativeChunkRef.current = null;
+      nativeSpeakingRef.current = false;
     })
       .then((handle) => handles.push(handle))
       .catch(() => undefined);
@@ -512,7 +579,17 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   }, [clearNowPlayingNotification, isNativeAndroid, isPaused, isPlaying, pushNowPlayingNotification]);
 
   const handlePlay = useCallback(() => {
-    if (!speechSupported || !latestTextRef.current.trim().length) return;
+    if (!speechSupported) return;
+
+    if (!latestTextRef.current.trim().length) {
+      if (generatingRef.current) {
+        setIsPaused(false);
+        setIsPlaying(true);
+        setWaitsForNextChunk(true);
+        speakFromOffset(0);
+      }
+      return;
+    }
 
     if (!isNativeAndroid) {
       if (isPaused && window.speechSynthesis.paused) {
@@ -530,6 +607,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     if (!speechSupported) return;
     if (isNativeAndroid) {
       BackgroundTts.stop().catch(() => undefined);
+      nativeSpeakingRef.current = false;
       setIsPlaying(false);
       setIsPaused(true);
       return;
@@ -585,6 +663,28 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     stopPlayback();
   }, [stopPlayback]);
 
+  const formatTime = useCallback((offset: number) => {
+    // Estimate time based on reading speed (assuming ~150 words per minute)
+    const words = text.slice(0, offset).split(/\s+/).filter(Boolean).length;
+    const minutes = Math.floor(words / 150);
+    const seconds = Math.floor((words % 150) / 2.5);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, [text]);
+
+  const handleSkipBackward = useCallback(() => {
+    const skipAmount = 100; // ~10 seconds worth of text
+    const newOffset = Math.max(0, offsetRef.current - skipAmount);
+    updateOffset(newOffset);
+    speakFromOffset(newOffset);
+  }, [speakFromOffset, updateOffset]);
+
+  const handleSkipForward = useCallback(() => {
+    const skipAmount = 100; // ~10 seconds worth of text
+    const newOffset = Math.min(text.length, offsetRef.current + skipAmount);
+    updateOffset(newOffset);
+    speakFromOffset(newOffset);
+  }, [text.length, speakFromOffset, updateOffset]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -598,9 +698,15 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   );
 
   useEffect(() => {
+    latestTextRef.current = text;
+  }, [text]);
+
+  useEffect(() => {
+    latestTextRef.current = text;
+    lastTextLengthRef.current = text.length;
     const normalized = Math.max(0, Math.min(startFromOffset, text.length));
     externalStartRef.current = normalized;
-    latestTextRef.current = text;
+
     if (!text.length) {
       stopPlayback();
       return;
@@ -609,6 +715,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     updateOffset(normalized);
     if (isNativeAndroid) {
       BackgroundTts.stop().catch(() => undefined);
+      nativeSpeakingRef.current = false;
     } else if (speechSupported) {
       window.speechSynthesis.cancel();
     }
@@ -620,7 +727,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
     speechSupported,
     startFromOffset,
     stopPlayback,
-    text,
+    storyKey,
     updateOffset,
   ]);
 
@@ -674,11 +781,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   const progress = text.length === 0 ? 0 : Math.min(100, (currentOffset / text.length) * 100);
 
   return (
-<<<<<<< HEAD
-    <div className="pointer-events-auto w-full bg-zinc-950/95 backdrop-blur-md border border-zinc-900 rounded-t-2xl shadow-2xl">
-=======
-    <div className="pointer-events-auto w-full bg-zinc-950/95 backdrop-blur-md border border-zinc-900 rounded-2xl shadow-2xl">
->>>>>>> 3e2a9f47ec447a7cb74d0452488cee2b0e432f0e
+    <div className="pointer-events-auto w-full bg-zinc-950/95 backdrop-blur-md border border-zinc-900 rounded-2xl shadow-2xl overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-zinc-400 font-mono">
           <Headphones size={14} className="text-red-500" />
@@ -686,7 +789,7 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
           {waitsForNextChunk && (
             <span className="flex items-center gap-1 text-red-400 text-[10px]">
               <Waves className="animate-pulse" size={14} />
-              <span>Tự động nối tiếp</span>
+              <span>{language === 'vi' ? 'Tự động nối tiếp' : 'Auto-continue'}</span>
             </span>
           )}
         </div>
@@ -694,20 +797,20 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
         <div className="flex items-center gap-2 ml-auto">
           <button
             onClick={handleTogglePlayPause}
-            className="p-3 rounded-full bg-red-700 hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={!text.length}
-            title={isPlaying && !isPaused ? 'Tạm dừng' : 'Phát'}
+            className="p-3 rounded-full bg-red-700 hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-lg"
+            disabled={!text.length && !isGenerating}
+            title={isPlaying && !isPaused ? (language === 'vi' ? 'Tạm dừng' : 'Pause') : (language === 'vi' ? 'Phát' : 'Play')}
           >
             {isPlaying && !isPaused ? (
-              <Pause size={18} className="text-white" />
+              <Pause size={20} className="text-white" />
             ) : (
-              <Play size={18} className="text-white" />
+              <Play size={20} className="text-white ml-0.5" />
             )}
           </button>
           <button
             onClick={() => setShowTuning((prev) => !prev)}
             className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition"
-            title="Điều chỉnh tốc độ & cao độ"
+            title={language === 'vi' ? 'Điều chỉnh tốc độ & cao độ' : 'Adjust speed & pitch'}
           >
             {showTuning ? <X size={18} /> : <SlidersHorizontal size={18} />}
           </button>
@@ -715,14 +818,59 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
       </div>
 
       <div className="px-4 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-red-600 transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            ></div>
+        {/* Timeline Scrubber */}
+        <div className="mb-3">
+          <input
+            type="range"
+            min="0"
+            max={text.length || 1}
+            value={currentOffset}
+            onChange={(e) => {
+              const newOffset = Number(e.target.value);
+              updateOffset(newOffset);
+              speakFromOffset(newOffset);
+            }}
+            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-red-600"
+            style={{
+              background: `linear-gradient(to right, rgb(220, 38, 38) 0%, rgb(220, 38, 38) ${progress}%, rgb(39, 39, 42) ${progress}%, rgb(39, 39, 42) 100%)`
+            }}
+            disabled={!text.length}
+          />
+        </div>
+
+        {/* Time and Controls */}
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSkipBackward}
+              disabled={!text.length || currentOffset === 0}
+              className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={language === 'vi' ? 'Lùi 10 giây' : 'Rewind 10s'}
+            >
+              <SkipBack size={16} className="text-zinc-300" />
+            </button>
+            <span className="text-[11px] text-zinc-500 font-mono min-w-[45px]">
+              {text.length > 0 ? formatTime(currentOffset) : '0:00'}
+            </span>
           </div>
-          <span className="text-[11px] text-zinc-500 font-mono w-16 text-right">{progress.toFixed(0)}%</span>
+          
+          <div className="flex-1 text-center">
+            <span className="text-[11px] text-zinc-500 font-mono">{progress.toFixed(0)}%</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-zinc-500 font-mono min-w-[45px] text-right">
+              {text.length > 0 ? formatTime(text.length) : '0:00'}
+            </span>
+            <button
+              onClick={handleSkipForward}
+              disabled={!text.length || currentOffset >= text.length}
+              className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={language === 'vi' ? 'Tới 10 giây' : 'Forward 10s'}
+            >
+              <SkipForward size={16} className="text-zinc-300" />
+            </button>
+          </div>
         </div>
 
         {showTuning && (

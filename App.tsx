@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { generateTopicBatch, OUTRO_SIGNATURE, streamStoryWithControls } from './services/deepseekService';
+import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls } from './services/deepseekService';
 import { StoryStatus, GenerationState, GENRE_PROMPTS, Language, StoryRecord } from './types';
 import StoryDisplay from './components/StoryDisplay';
 import TTSPlayer, { TTSPlayerHandle } from './components/TTSPlayer';
 import StoryLibrary from './components/StoryLibrary';
-import { Radio, AlertCircle, Dices } from 'lucide-react';
+import PauseDialog from './components/PauseDialog';
+import { AlertCircle, ChevronDown, Dices, Loader2, Radio } from 'lucide-react';
 import {
   clearApiKey,
   getStoredApiKey,
@@ -27,6 +28,7 @@ import {
   getAllowBackgroundGeneration,
   getStoryPersonalization,
   getStoryModel,
+  getStoryTemperature,
   TARGET_MAX_OFFSET,
   TARGET_MAX_WORDS,
   TARGET_MIN_OFFSET,
@@ -36,6 +38,7 @@ import {
   setStoryPersonalization,
   setReuseStoryCache,
   setStoryModel,
+  setStoryTemperature,
 } from './services/settingsStore';
 import type { NarrativeStyle, StoryModel, StoryPersonalization } from './services/settingsStore';
 
@@ -96,6 +99,10 @@ const TRANSLATIONS = {
     ttsSettings: "Cài đặt giọng đọc",
     ttsSettingsHint: "Chọn giọng đọc của Google hoặc hệ thống.",
     ttsInstall: "Cài dữ liệu TTS",
+    temperatureLabel: "Nhiệt độ tạo truyện (Temperature)",
+    temperatureHint: "Điều chỉnh độ sáng tạo và ngẫu nhiên. Thấp = nhất quán hơn, Cao = đa dạng hơn.",
+    temperatureLow: "Thấp (0.1)",
+    temperatureHigh: "Cao (2.0)",
   },
   en: {
     subtitle: "Frequency: 03:00 AM // Host: Morgan Hayes",
@@ -152,6 +159,10 @@ const TRANSLATIONS = {
     ttsSettings: "TTS Settings",
     ttsSettingsHint: "Choose Google or system voice.",
     ttsInstall: "Install TTS data",
+    temperatureLabel: "Story Generation Temperature",
+    temperatureHint: "Adjust creativity and randomness. Low = more consistent, High = more diverse.",
+    temperatureLow: "Low (0.1)",
+    temperatureHigh: "High (2.0)",
   }
 };
 
@@ -259,6 +270,7 @@ const App: React.FC = () => {
   const ttsRef = useRef<TTSPlayerHandle>(null);
   const [ttsOffset, setTtsOffset] = useState(0);
   const [startFromOffset, setStartFromOffset] = useState(0);
+  const [ttsStoryKey, setTtsStoryKey] = useState(0);
   const generationControllerRef = useRef<AbortController | null>(null);
   const generationIdRef = useRef(0);
   const lastTopicRef = useRef('');
@@ -274,10 +286,14 @@ const App: React.FC = () => {
   const [backgroundSupported, setBackgroundSupported] = useState(false);
   const [reuseCache, setReuseCache] = useState(false);
   const [storyModel, setStoryModelState] = useState<StoryModel>('deepseek-reasoner');
+  const [storyTemperature, setStoryTemperature] = useState(1.6);
   const [personalization, setPersonalization] = useState<StoryPersonalization>(
     DEFAULT_STORY_PERSONALIZATION
   );
   const [randomizingTopic, setRandomizingTopic] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showPauseDialog, setShowPauseDialog] = useState(false);
+  const [pausedStoryTitle, setPausedStoryTitle] = useState('');
   const aiTopicCacheRef = useRef<string[]>([]);
   const isNativeAndroid =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
@@ -328,6 +344,7 @@ const App: React.FC = () => {
           storedPersonalization,
           storedReuseCache,
           storedStoryModel,
+          storedTemperature,
         ] = await Promise.all([
           listStories(),
           getStoredApiKey(),
@@ -335,6 +352,7 @@ const App: React.FC = () => {
           getStoryPersonalization(),
           getReuseStoryCache(),
           getStoryModel(),
+          getStoryTemperature(),
         ]);
         if (!alive) return;
         setStories(storedStories);
@@ -342,6 +360,7 @@ const App: React.FC = () => {
         setPersonalization(storedPersonalization);
         setReuseCache(storedReuseCache);
         setStoryModelState(storedStoryModel);
+        setStoryTemperature(storedTemperature);
         if (storedKey) {
           setApiKeyInput(storedKey);
           setApiKeyStatus('stored');
@@ -394,6 +413,7 @@ const App: React.FC = () => {
   const handleGenerate = async () => {
     setActiveStoryId(null);
     setStartFromOffset(0);
+    setTtsStoryKey((key) => key + 1);
     setTtsOffset(0);
     const trimmedTopic = topicInput.trim();
     const usingAutoTopic = trimmedTopic.length === 0;
@@ -459,6 +479,19 @@ const App: React.FC = () => {
 
   const handleStopBroadcast = () => {
     if (state.status !== StoryStatus.GENERATING) return;
+    // Tạo tiêu đề trước khi dừng
+    if (state.text.trim().length > 0) {
+      generateStoryTitle(language, lastTopicRef.current, state.text)
+        .then(title => {
+          setPausedStoryTitle(title || state.topic);
+        })
+        .catch(() => {
+          setPausedStoryTitle(state.topic);
+        });
+    } else {
+      setPausedStoryTitle(state.topic);
+    }
+    setShowPauseDialog(true);
     generationControllerRef.current?.abort();
   };
 
@@ -562,11 +595,25 @@ const App: React.FC = () => {
     const saveKey = `${language}:${state.topic}:${state.text.length}`;
     if (lastSavedKeyRef.current === saveKey) return;
     lastSavedKeyRef.current = saveKey;
-    saveStory({
-      topic: state.topic,
-      language,
-      text: state.text,
-    })
+    
+    // Tạo tiêu đề trước khi lưu
+    generateStoryTitle(language, lastTopicRef.current, state.text)
+      .then(title => {
+        return saveStory({
+          topic: state.topic,
+          language,
+          text: state.text,
+          title,
+        });
+      })
+      .catch(() => {
+        // Nếu sinh tiêu đề thất bại, lưu mà không có title
+        return saveStory({
+          topic: state.topic,
+          language,
+          text: state.text,
+        });
+      })
       .then((record) => {
         setStories((prev) => [record, ...prev]);
         setActiveStoryId(record.id);
@@ -589,7 +636,44 @@ const App: React.FC = () => {
       error: undefined,
     });
     setStartFromOffset(offset);
+    setTtsStoryKey((key) => key + 1);
     setTtsOffset(offset);
+  };
+
+  const handleResumePausedStory = () => {
+    setShowPauseDialog(false);
+    // Tiếp tục tạo truyện hiện tại
+    handleResumeBroadcast();
+  };
+
+  const handleCreateNewFromPause = () => {
+    setShowPauseDialog(false);
+    // Lưu truyện hiện tại
+    if (state.text.trim().length > 0) {
+      saveStory({
+        topic: state.topic,
+        language,
+        text: state.text,
+        title: pausedStoryTitle,
+      })
+        .then((record) => {
+          setStories((prev) => [record, ...prev]);
+        })
+        .catch((error) => console.error("Failed to save story:", error));
+    }
+    // Tạo truyện mới
+    setTopicInput('');
+    setTtsOffset(0);
+    setStartFromOffset(0);
+    setTtsStoryKey((key) => key + 1);
+    setState({
+      status: StoryStatus.IDLE,
+      text: '',
+      topic: '',
+      error: undefined,
+    });
+    setActiveStoryId(null);
+    setPausedStoryTitle('');
   };
 
   const handleToggleFavorite = async (story: StoryRecord) => {
@@ -688,6 +772,15 @@ const App: React.FC = () => {
     }
   };
 
+  const handleTemperatureChange = async (value: number) => {
+    setStoryTemperature(value);
+    try {
+      await setStoryTemperature(value);
+    } catch (error) {
+      console.error("Failed to save temperature:", error);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col items-center pt-12 pb-40 px-4 md:px-8 bg-black text-gray-200 selection:bg-red-900 selection:text-white">
       <header className="mb-12 text-center relative group cursor-default w-full max-w-6xl mx-auto flex flex-col items-center">
@@ -735,17 +828,8 @@ const App: React.FC = () => {
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <label className="text-xs font-mono text-zinc-500 uppercase">{t.labelSubject}</label>
-                    <span className="text-[10px] text-zinc-600 font-mono uppercase tracking-wide">{t.suggested}</span>
                   </div>
-                  <div className="flex gap-2 flex-col sm:flex-row">
-                    <button
-                      onClick={handleRandomTopic}
-                      disabled={state.status === StoryStatus.GENERATING || randomizingTopic}
-                      className="px-4 py-3 sm:py-0 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0 flex items-center justify-center"
-                      title={t.randomBtnTitle}
-                    >
-                      <Dices size={20} />
-                    </button>
+                  <div className="flex gap-2 flex-col sm:flex-row items-stretch">
                     <input
                       type="text"
                       value={topicInput}
@@ -755,8 +839,43 @@ const App: React.FC = () => {
                       disabled={state.status === StoryStatus.GENERATING}
                       onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
                     />
+                    <button
+                      onClick={handleRandomTopic}
+                      disabled={state.status === StoryStatus.GENERATING || randomizingTopic}
+                      className="px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-md hover:bg-zinc-700 hover:text-red-400 transition-colors text-zinc-400 disabled:opacity-50 shrink-0 flex items-center justify-center"
+                      title={t.randomBtnTitle}
+                      aria-busy={randomizingTopic}
+                    >
+                      {randomizingTopic ? <Loader2 className="h-5 w-5 animate-spin" /> : <Dices size={20} />}
+                    </button>
                   </div>
                   <p className="text-[11px] font-mono uppercase tracking-wide text-zinc-500">{t.autoTopicHint}</p>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => setShowSuggestions((prev) => !prev)}
+                      className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md text-[10px] font-mono uppercase tracking-wide text-zinc-400 hover:border-red-800 hover:text-red-400 transition"
+                      aria-expanded={showSuggestions}
+                    >
+                      <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wide">{t.suggested}</span>
+                      <ChevronDown
+                        size={14}
+                        className={`transition-transform ${showSuggestions ? 'rotate-180 text-red-400' : 'text-zinc-600'}`}
+                      />
+                    </button>
+                    {showSuggestions && (
+                      <div className="flex flex-wrap gap-2">
+                        {GENRE_PROMPTS[language].map((prompt) => (
+                          <button
+                            key={prompt}
+                            onClick={() => setTopicInput(prompt)}
+                            className="px-2 py-1 bg-zinc-950 border border-zinc-800 text-zinc-400 text-[10px] hover:border-red-900 hover:text-red-400 transition-colors rounded"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex gap-2 w-full flex-wrap">
                     <button
                       onClick={handleGenerate}
@@ -785,17 +904,6 @@ const App: React.FC = () => {
                         {t.resume}
                       </button>
                     )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {GENRE_PROMPTS[language].map((prompt) => (
-                      <button
-                        key={prompt}
-                        onClick={() => setTopicInput(prompt)}
-                        className="px-2 py-1 bg-zinc-950 border border-zinc-800 text-zinc-400 text-[10px] hover:border-red-900 hover:text-red-400 transition-colors rounded"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
                   </div>
                 </div>
               </div>
@@ -930,6 +1038,34 @@ const App: React.FC = () => {
                   <span className="text-xs text-zinc-500">{t.storyModelHint}</span>
                 </label>
               </div>
+              <div className="mt-5 pt-5 border-t border-zinc-800">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-zinc-200 font-medium">
+                      {t.temperatureLabel}
+                    </label>
+                    <span className="text-sm font-mono text-zinc-400 bg-zinc-800 px-2 py-1 rounded">
+                      {storyTemperature.toFixed(2)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2.0"
+                    step="0.05"
+                    value={storyTemperature}
+                    onChange={(e) => handleTemperatureChange(Number(e.target.value))}
+                    className="w-full accent-red-600 h-2 cursor-pointer"
+                  />
+                  <div className="flex justify-between items-center text-[11px] text-zinc-500">
+                    <span>{t.temperatureLow}</span>
+                    <span>{t.temperatureHigh}</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                    {t.temperatureHint}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="w-full bg-zinc-900 border border-zinc-800 p-6 rounded-lg shadow-xl">
@@ -1016,14 +1152,10 @@ const App: React.FC = () => {
         )}
       </div>
       
-<<<<<<< HEAD
-      <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3">
-=======
       <div
         className="fixed left-0 right-0 bottom-0 z-40 px-3"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 16px) + 12px)' }}
       >
->>>>>>> 3e2a9f47ec447a7cb74d0452488cee2b0e432f0e
         <div className="max-w-4xl mx-auto">
           <TTSPlayer
             ref={ttsRef}
@@ -1031,11 +1163,21 @@ const App: React.FC = () => {
             topic={state.topic}
             language={language}
             isGenerating={state.status === StoryStatus.GENERATING}
+            storyKey={ttsStoryKey}
             onProgress={setTtsOffset}
             startFromOffset={startFromOffset}
           />
         </div>
       </div>
+
+      <PauseDialog
+        isOpen={showPauseDialog}
+        storyTitle={pausedStoryTitle}
+        onResume={handleResumePausedStory}
+        onCreateNew={handleCreateNewFromPause}
+        onClose={() => setShowPauseDialog(false)}
+        language={language}
+      />
 
       <footer className="mt-16 text-zinc-700 text-xs font-mono text-center">
         <p>{t.footerCaution}</p>

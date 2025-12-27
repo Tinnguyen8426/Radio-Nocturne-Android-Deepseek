@@ -7,6 +7,7 @@ export interface BackgroundStoryPlugin {
     baseUrl: string;
     model: string;
     temperature: number;
+    topP?: number;
     maxTokens: number;
     storyMinWords: number;
     storyTargetWords: number;

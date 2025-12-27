@@ -18,6 +18,7 @@ export interface GenerationState {
 export interface StoryRecord {
   id: string;
   topic: string;
+  title: string;
   language: Language;
   text: string;
   createdAt: string;

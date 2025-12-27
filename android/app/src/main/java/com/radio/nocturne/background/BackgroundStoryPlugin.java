@@ -111,7 +111,8 @@ public class BackgroundStoryPlugin extends Plugin implements BackgroundStoryServ
         }
         config.baseUrl = baseUrl.replaceAll("/$", "");
         config.model = call.getString("model", "deepseek-reasoner");
-        config.temperature = call.getDouble("temperature", 1.5);
+        config.temperature = call.getDouble("temperature", 1.6);
+        config.topP = call.getDouble("topP", 0.95);
         config.maxTokens = call.getInt("maxTokens", 8192);
         config.storyMinWords = call.getInt("storyMinWords", 6500);
         config.storyTargetWords = call.getInt("storyTargetWords", 7200);
