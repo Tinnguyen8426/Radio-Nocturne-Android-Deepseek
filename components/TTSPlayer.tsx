@@ -674,7 +674,11 @@ const TTSPlayer = forwardRef<TTSPlayerHandle, TTSPlayerProps>((props, ref) => {
   const progress = text.length === 0 ? 0 : Math.min(100, (currentOffset / text.length) * 100);
 
   return (
+<<<<<<< HEAD
     <div className="pointer-events-auto w-full bg-zinc-950/95 backdrop-blur-md border border-zinc-900 rounded-t-2xl shadow-2xl">
+=======
+    <div className="pointer-events-auto w-full bg-zinc-950/95 backdrop-blur-md border border-zinc-900 rounded-2xl shadow-2xl">
+>>>>>>> 3e2a9f47ec447a7cb74d0452488cee2b0e432f0e
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-zinc-400 font-mono">
           <Headphones size={14} className="text-red-500" />

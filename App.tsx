@@ -1016,7 +1016,14 @@ const App: React.FC = () => {
         )}
       </div>
       
+<<<<<<< HEAD
       <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3">
+=======
+      <div
+        className="fixed left-0 right-0 bottom-0 z-40 px-3"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 16px) + 12px)' }}
+      >
+>>>>>>> 3e2a9f47ec447a7cb74d0452488cee2b0e432f0e
         <div className="max-w-4xl mx-auto">
           <TTSPlayer
             ref={ttsRef}
