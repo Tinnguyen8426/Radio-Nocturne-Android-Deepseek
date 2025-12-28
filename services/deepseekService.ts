@@ -1301,7 +1301,7 @@ const isApproachingEnding = (text: string) => {
   return hostKeywords.some(kw => tail.includes(kw));
 };
 
-const hasOutroSignature = (text: string) => {
+export const hasOutroSignature = (text: string) => {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
@@ -1310,17 +1310,21 @@ const hasOutroSignature = (text: string) => {
 
   const tail = trimmed.slice(Math.max(0, trimmed.length - 1000)).toLowerCase();
 
-  // 2. Lenient Semantic Match (Smart fuzzy match)
-  // If we see the host's name AND a closing signal within the last 1000 chars, it's done.
+  // 2. Strict Semantic Match
+  // We want to ensure the specific closing phrase is present, not just generic "tạm dừng".
+  // The signature contains: "xin phép được tạm dừng tại đây" and "đêm ngon giấc"
   const hasHostName = tail.includes("morgan hayes");
-  const hasClosingSignal = 
-    tail.includes("tạm dừng") || 
-    tail.includes("ngon giấc") || 
-    tail.includes("kết thúc") ||
-    tail.includes("khép lại") ||
-    tail.includes("hẹn gặp lại");
-
-  if (hasHostName && hasClosingSignal) return true;
+  const hasStationName = tail.includes("radio truyện đêm khuya");
+  
+  if (hasHostName || hasStationName) {
+     // Require more specific phrases from the actual signature
+     const hasSpecificClosing = 
+       tail.includes("xin phép được tạm dừng tại đây") || 
+       tail.includes("đêm ngon giấc nếu còn có thể") ||
+       tail.includes("chúc các bạn có một đêm ngon giấc");
+       
+     if (hasSpecificClosing) return true;
+  }
 
   return false;
 };

@@ -139,23 +139,22 @@ public class BackgroundStoryService extends Service {
         // 1. Exact match
         if (trimmed.contains(signature)) return true;
 
-        String tail = trimmed.substring(Math.max(0, trimmed.length() - 500)).toLowerCase(Locale.ROOT);
+        String tail = trimmed.substring(Math.max(0, trimmed.length() - 1000)).toLowerCase(Locale.ROOT);
 
-        // 2. Unique phrase match
-        String[] uniqueOutroPhrases = {
-            "xin phép được tạm dừng",
-            "tạm dừng tại đây",
-            "chúc các bạn có một đêm ngon giấc",
-            "đêm ngon giấc nếu còn có thể"
-        };
-        for (String phrase : uniqueOutroPhrases) {
-            if (tail.contains(phrase)) return true;
-        }
+        // 2. Strict Semantic Match
+        // We want to ensure the specific closing phrase is present, not just generic "tạm dừng".
+        boolean hasHostName = tail.contains("morgan hayes");
+        boolean hasStationName = tail.contains("radio truyện đêm khuya");
 
-        // 3. Context-aware fuzzy match
-        if (text.length() > 2000) {
-            if (tail.contains("tôi là morgan hayes") && tail.contains("truyện đêm khuya")) {
-                return true;
+        if (hasHostName || hasStationName) {
+            String[] specificClosingSignals = {
+                "xin phép được tạm dừng tại đây",
+                "đêm ngon giấc nếu còn có thể",
+                "chúc các bạn có một đêm ngon giấc"
+            };
+            
+            for (String signal : specificClosingSignals) {
+                if (tail.contains(signal)) return true;
             }
         }
 

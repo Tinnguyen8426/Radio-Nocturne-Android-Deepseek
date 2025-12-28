@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Maximize2, Minimize2, Type, Minus, Plus, AlertTriangle } from 'lucide-react';
 import { Language } from '../types';
 import { exportStoryToTxt } from '../services/storyExport';
+import { hasOutroSignature as checkOutroSignature } from '../services/deepseekService';
 
 interface StoryDisplayProps {
   text: string;
@@ -13,7 +14,7 @@ interface StoryDisplayProps {
   thoughtStream?: string;
 }
 
-const OUTRO_SIGNATURE = "Tôi là Morgan Hayes, và radio Truyện Đêm Khuya xin phép được tạm dừng tại đây. Chúc các bạn có một đêm ngon giấc nếu còn có thể.";
+
 
 const StoryDisplay: React.FC<StoryDisplayProps> = ({
   text,
@@ -33,7 +34,7 @@ const StoryDisplay: React.FC<StoryDisplayProps> = ({
   
   // Check if story has outro signature
   const hasOutroSignature = useMemo(() => {
-    return text.includes(OUTRO_SIGNATURE);
+    return checkOutroSignature(text);
   }, [text]);
   
   const isStoryIncomplete = useMemo(() => {

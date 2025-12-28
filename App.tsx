@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls, clearGenerationHistory, completeStoryWithOutro } from './services/deepseekService';
+import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls, clearGenerationHistory, completeStoryWithOutro, hasOutroSignature } from './services/deepseekService';
 import { StoryStatus, GenerationState, GENRE_PROMPTS, Language, StoryRecord } from './types';
 import StoryDisplay from './components/StoryDisplay';
 import TTSPlayer, { TTSPlayerHandle } from './components/TTSPlayer';
@@ -730,7 +730,7 @@ const App: React.FC = () => {
       fullText = normalizeOutroSignature(fullText);
       
       // Auto-complete story if missing outro signature
-      if (!fullText.includes(OUTRO_SIGNATURE)) {
+      if (!hasOutroSignature(fullText)) {
         const apiKey = await getStoredApiKey();
         if (apiKey) {
           try {
@@ -806,7 +806,7 @@ const App: React.FC = () => {
     if (activeStoryId) return;
     
     // Check if story has outro signature before saving
-    const hasOutro = state.text.includes(OUTRO_SIGNATURE);
+    const hasOutro = hasOutroSignature(state.text);
     if (!hasOutro) {
       console.warn("Story is incomplete - missing outro signature. Not saving to library.");
       return;
@@ -888,7 +888,7 @@ const App: React.FC = () => {
     // Lưu truyện hiện tại
     if (state.text.trim().length > 0) {
       // Check if story has outro signature before saving
-      const hasOutro = state.text.includes(OUTRO_SIGNATURE);
+      const hasOutro = hasOutroSignature(state.text);
       if (hasOutro) {
         saveStory({
           topic: state.topic,
