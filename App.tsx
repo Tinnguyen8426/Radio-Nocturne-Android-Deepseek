@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls, clearGenerationHistory } from './services/deepseekService';
+import { generateTopicBatch, generateStoryTitle, OUTRO_SIGNATURE, streamStoryWithControls, clearGenerationHistory, completeStoryWithOutro } from './services/deepseekService';
 import { StoryStatus, GenerationState, GENRE_PROMPTS, Language, StoryRecord } from './types';
 import StoryDisplay from './components/StoryDisplay';
 import TTSPlayer, { TTSPlayerHandle } from './components/TTSPlayer';
@@ -43,7 +43,7 @@ import {
   setStoryPersonalization,
   setReuseStoryCache,
   setStoryModel,
-  setStoryTemperature,
+  setStoryTemperature as persistStoryTemperature,
 } from './services/settingsStore';
 import type { NarrativeStyle, StoryModel, StoryPersonalization } from './services/settingsStore';
 
@@ -93,6 +93,8 @@ const TRANSLATIONS = {
     styleHint: "Chọn phong cách tường thuật ưu tiên.",
     lengthLabel: "Độ dài mục tiêu",
     lengthHint: "Dải hiện tại:",
+    wordsLabel: "từ",
+    actualLengthLabel: "độ dài thực tế",
     styleDefault: "Mặc định (Morgan Hayes)",
     styleConfession: "Lời thú tội",
     styleDossier: "Hồ sơ / tài liệu tổng hợp",
@@ -153,6 +155,8 @@ const TRANSLATIONS = {
     styleHint: "Choose a preferred narration style.",
     lengthLabel: "Target Length",
     lengthHint: "Current range:",
+    wordsLabel: "words",
+    actualLengthLabel: "actual length",
     styleDefault: "Default (Morgan Hayes)",
     styleConfession: "Confession",
     styleDossier: "Dossier / compiled evidence",
@@ -187,7 +191,7 @@ const THEMED_RANDOM_TOPICS: Record<Language, string[]> = {
     "Đơn khiếu nại về người hàng xóm luôn trả lời trước khi tôi hỏi",
     "Tờ rơi cảnh báo về một quán tạp hoá chỉ mở lúc 03:00 và không bán đồ ăn",
     "Biên bản của bảo vệ toà nhà: tầng hầm xuất hiện thêm một lối đi mỗi đêm mưa",
-    "Thư tay tìm thấy trong hộp thư: “Đừng nhìn thẳng vào gương thang máy”",
+    "Thư tay tìm thấy trong hộp thư: \"Đừng nhìn thẳng vào gương thang máy\"",
     "Hồ sơ người mất tích: tất cả đều biến mất sau khi gọi vào một số máy lạ",
     "Bản ghi lời khai về một con hẻm đổi chỗ sau mỗi lần tôi quay đầu",
     "Tờ giấy biên nhận thuê phòng trọ ghi sai năm—và tôi bắt đầu sống theo năm đó",
@@ -199,11 +203,11 @@ const THEMED_RANDOM_TOPICS: Record<Language, string[]> = {
     "Complaint letter about a neighbor who answers before I speak",
     "Warning flyer about a convenience store that opens only at 3 AM and sells nothing edible",
     "Security log: a new corridor appears in the basement every rainy night",
-    "Handwritten mail found in my box: “Don’t stare into the elevator mirror”",
+    "Handwritten mail found in my box: \"Don’t stare into the elevator mirror\"",
     "Missing persons dossier: they all vanished after calling the same unlisted number",
     "Witness statement about an alley that swaps places whenever I look away",
     "Receipt for a rented room dated with the wrong year—and I start living that year",
-    "Resident registry pages torn out from a neighborhood that “never existed”",
+    "Resident registry pages torn out from a neighborhood that \"never existed\"",
   ],
 };
 
@@ -382,7 +386,7 @@ const App: React.FC = () => {
   const [backgroundSupported, setBackgroundSupported] = useState(false);
   const [reuseCache, setReuseCache] = useState(false);
   const [storyModel, setStoryModelState] = useState<StoryModel>('deepseek-reasoner');
-  const [storyTemperature, setStoryTemperature] = useState(1.6);
+  const [storyTemperature, setStoryTemperature] = useState(1.5);
   const [personalization, setPersonalization] = useState<StoryPersonalization>(
     DEFAULT_STORY_PERSONALIZATION
   );
@@ -400,8 +404,6 @@ const App: React.FC = () => {
   const targetMinWords = TARGET_MIN_WORDS;
   const targetMaxWords = TARGET_MAX_WORDS;
   const targetWords = Math.min(targetMaxWords, Math.max(targetMinWords, personalization.targetWords));
-  const targetDisplayOffset = 2000;
-  const displayTargetWords = targetWords + targetDisplayOffset;
   const derivedMinWords = Math.min(
     targetMaxWords,
     Math.max(targetMinWords, targetWords - TARGET_MIN_OFFSET)
@@ -410,8 +412,6 @@ const App: React.FC = () => {
     derivedMinWords,
     Math.min(targetMaxWords, Math.max(targetMinWords, targetWords + TARGET_MAX_OFFSET))
   );
-  const displayMinWords = derivedMinWords + targetDisplayOffset;
-  const displayHardMaxWords = derivedHardMaxWords + targetDisplayOffset;
   const horrorLabel =
     personalization.horrorLevel <= 30
       ? t.horrorLow
@@ -586,8 +586,10 @@ const App: React.FC = () => {
         language,
         (chunk) => {
           if (requestId !== generationIdRef.current) return;
-          hasStoryText = true;
-          setThoughtStream('');
+          if (!hasStoryText && chunk.trim().length > 0) {
+            hasStoryText = true;
+            setThoughtStream(''); // Clear thinking view only when first actual text arrives
+          }
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
@@ -596,8 +598,11 @@ const App: React.FC = () => {
           seed: generationSeed,
           cacheAnchors,
           onReasoningChunk: (reasoning) => {
-            if (requestId !== generationIdRef.current || hasStoryText) return;
-            setThoughtStream((prev) => (prev + reasoning).slice(-4000));
+            if (requestId !== generationIdRef.current) return;
+            // Only update thought stream if we haven't started receiving story text for THIS pass
+            if (!hasStoryText) {
+              setThoughtStream((prev) => (prev + reasoning).slice(-4000));
+            }
           },
         }
       );
@@ -695,13 +700,16 @@ const App: React.FC = () => {
 
     try {
       let fullText = initialText;
+      let hasPassStoryText = false;
       await streamStoryWithControls(
         trimmedTopic,
         language,
         (chunk) => {
           if (requestId !== generationIdRef.current) return;
-          hasStoryText = true;
-          setThoughtStream('');
+          if (!hasPassStoryText && chunk.trim().length > 0) {
+            hasPassStoryText = true;
+            setThoughtStream(''); 
+          }
           fullText += chunk;
           setState(prev => ({ ...prev, text: prev.text + chunk }));
         },
@@ -711,16 +719,37 @@ const App: React.FC = () => {
           seed: generationSeed,
           cacheAnchors,
           onReasoningChunk: (reasoning) => {
-            if (requestId !== generationIdRef.current || hasStoryText) return;
-            setThoughtStream((prev) => (prev + reasoning).slice(-4000));
+            if (requestId !== generationIdRef.current) return;
+            if (!hasPassStoryText) {
+              setThoughtStream((prev) => (prev + reasoning).slice(-4000));
+            }
           },
         }
       );
 
       fullText = normalizeOutroSignature(fullText);
+      
+      // Auto-complete story if missing outro signature
+      if (!fullText.includes(OUTRO_SIGNATURE)) {
+        const apiKey = await getStoredApiKey();
+        if (apiKey) {
+          try {
+            setState(prev => ({ ...prev, error: language === 'vi' ? 'Đang hoàn thiện kết thúc...' : 'Completing story ending...' }));
+            fullText = await completeStoryWithOutro(fullText, language, apiKey);
+            fullText = normalizeOutroSignature(fullText);
+          } catch (error) {
+            console.error('Failed to auto-complete story:', error);
+            setState(prev => ({
+              ...prev, 
+              error: language === 'vi' ? 'Không thể hoàn thiện kết thúc tự động' : 'Failed to auto-complete ending'
+            }));
+          }
+        }
+      }
+      
       if (requestId !== generationIdRef.current) return;
 
-      setState(prev => ({ ...prev, status: StoryStatus.COMPLETE, text: fullText }));
+      setState(prev => ({ ...prev, status: StoryStatus.COMPLETE, text: fullText, error: undefined }));
     } catch (error) {
       if (requestId !== generationIdRef.current) return;
       if (error instanceof Error && error.name === 'AbortError') {
@@ -775,6 +804,14 @@ const App: React.FC = () => {
     if (state.status !== StoryStatus.COMPLETE) return;
     if (!state.text.trim().length) return;
     if (activeStoryId) return;
+    
+    // Check if story has outro signature before saving
+    const hasOutro = state.text.includes(OUTRO_SIGNATURE);
+    if (!hasOutro) {
+      console.warn("Story is incomplete - missing outro signature. Not saving to library.");
+      return;
+    }
+    
     const saveKey = `${language}:${state.topic}:${state.text.length}`;
     if (lastSavedKeyRef.current === saveKey) return;
     lastSavedKeyRef.current = saveKey;
@@ -850,16 +887,22 @@ const App: React.FC = () => {
     
     // Lưu truyện hiện tại
     if (state.text.trim().length > 0) {
-      saveStory({
-        topic: state.topic,
-        language,
-        text: state.text,
-        title: pausedStoryTitle,
-      })
-        .then((record) => {
-          setStories((prev) => [record, ...prev]);
+      // Check if story has outro signature before saving
+      const hasOutro = state.text.includes(OUTRO_SIGNATURE);
+      if (hasOutro) {
+        saveStory({
+          topic: state.topic,
+          language,
+          text: state.text,
+          title: pausedStoryTitle,
         })
-        .catch((error) => console.error("Failed to save story:", error));
+          .then((record) => {
+            setStories((prev) => [record, ...prev]);
+          })
+          .catch((error) => console.error("Failed to save story:", error));
+      } else {
+        console.warn("Paused story is incomplete - missing outro signature. Not saving to library.");
+      }
     }
     // Abort current generation if running
     generationControllerRef.current?.abort();
@@ -986,7 +1029,7 @@ const App: React.FC = () => {
   const handleTemperatureChange = async (value: number) => {
     setStoryTemperature(value);
     try {
-      await setStoryTemperature(value);
+      await persistStoryTemperature(value);
     } catch (error) {
       console.error("Failed to save temperature:", error);
     }
@@ -1018,8 +1061,7 @@ const App: React.FC = () => {
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex-1 min-w-[100px] px-4 py-2 rounded-full font-mono text-xs uppercase tracking-widest transition ${
-                activeTab === item.id
+              className={`flex-1 min-w-[100px] px-4 py-2 rounded-full font-mono text-xs uppercase tracking-widest transition ${activeTab === item.id
                   ? 'bg-red-700 text-white shadow-lg shadow-red-900/40'
                   : 'bg-transparent text-zinc-500 hover:text-zinc-200'
               }`}
@@ -1091,8 +1133,7 @@ const App: React.FC = () => {
                     <button
                       onClick={handleGenerate}
                       disabled={state.status === StoryStatus.GENERATING}
-                      className={`flex-1 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all ${
-                        state.status === StoryStatus.GENERATING
+                      className={`flex-1 py-3 rounded font-bold uppercase text-sm tracking-wider transition-all ${state.status === StoryStatus.GENERATING
                           ? 'bg-zinc-800 text-zinc-500 cursor-wait'
                           : 'bg-red-700 hover:bg-red-600 text-white shadow-lg hover:shadow-red-900/50'
                       }`}
@@ -1205,15 +1246,11 @@ const App: React.FC = () => {
                 <button
                   onClick={handleToggleBackground}
                   disabled={!backgroundSupported || !isNativeAndroid}
-                  className={`relative w-16 h-9 rounded-full border transition shrink-0 ${
-                    allowBackground ? 'bg-red-700 border-red-600' : 'bg-zinc-800 border-zinc-700'
-                  } ${!backgroundSupported || !isNativeAndroid ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  className={`relative w-16 h-9 rounded-full border transition shrink-0 ${allowBackground ? 'bg-red-700 border-red-600' : 'bg-zinc-800 border-zinc-700'} ${!backgroundSupported || !isNativeAndroid ? 'opacity-40 cursor-not-allowed' : ''}`}
                   aria-pressed={allowBackground}
                 >
                   <span
-                    className={`absolute top-1 left-1 h-7 w-7 rounded-full bg-zinc-100 shadow-md transition-transform ${
-                      allowBackground ? 'translate-x-7' : 'translate-x-0'
-                    }`}
+                    className={`absolute top-1 left-1 h-7 w-7 rounded-full bg-zinc-100 shadow-md transition-transform ${allowBackground ? 'translate-x-7' : 'translate-x-0'}`}
                   />
                 </button>
               </div>
@@ -1224,15 +1261,11 @@ const App: React.FC = () => {
                 </div>
                 <button
                   onClick={handleToggleReuseCache}
-                  className={`relative w-16 h-9 rounded-full border transition shrink-0 ${
-                    reuseCache ? 'bg-red-700 border-red-600' : 'bg-zinc-800 border-zinc-700'
-                  }`}
+                  className={`relative w-16 h-9 rounded-full border transition shrink-0 ${reuseCache ? 'bg-red-700 border-red-600' : 'bg-zinc-800 border-zinc-700'}`}
                   aria-pressed={reuseCache}
                 >
                   <span
-                    className={`absolute top-1 left-1 h-7 w-7 rounded-full bg-zinc-100 shadow-md transition-transform ${
-                      reuseCache ? 'translate-x-7' : 'translate-x-0'
-                    }`}
+                    className={`absolute top-1 left-1 h-7 w-7 rounded-full bg-zinc-100 shadow-md transition-transform ${reuseCache ? 'translate-x-7' : 'translate-x-0'}`}
                   />
                 </button>
               </div>
@@ -1321,7 +1354,7 @@ const App: React.FC = () => {
                 </label>
 
                 <label className="flex flex-col gap-1 text-zinc-400 md:col-span-2">
-                  {t.lengthLabel} ({displayTargetWords.toLocaleString()})
+                  {t.lengthLabel} ({targetWords.toLocaleString()} {t.wordsLabel})
                   <input
                     type="range"
                     min={targetMinWords}
@@ -1331,9 +1364,10 @@ const App: React.FC = () => {
                     onChange={(e) => updatePersonalization({ targetWords: Number(e.target.value) })}
                     className="w-full accent-red-600"
                   />
-                  <span className="text-[11px] text-zinc-500">
-                    {t.lengthHint} {displayMinWords.toLocaleString()}–{displayHardMaxWords.toLocaleString()}.
-                  </span>
+                  <div className="flex justify-between items-center text-[11px] text-zinc-500">
+                    <span>{derivedMinWords.toLocaleString()} - {derivedHardMaxWords.toLocaleString()} {t.wordsLabel}</span>
+                    <span>{t.actualLengthLabel}</span>
+                  </div>
                 </label>
               </div>
             </div>

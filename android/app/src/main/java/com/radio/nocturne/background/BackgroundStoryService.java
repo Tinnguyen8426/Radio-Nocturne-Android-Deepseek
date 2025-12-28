@@ -61,6 +61,10 @@ public class BackgroundStoryService extends Service {
     private Call activeCall;
     private PowerManager.WakeLock wakeLock;
 
+    private static final long UPDATE_INTERVAL_MS = 2000; // 2 seconds throttle
+    private long lastNotificationUpdate = 0;
+    private NotificationManager notificationManager;
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -69,6 +73,7 @@ public class BackgroundStoryService extends Service {
             .writeTimeout(30, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build();
+        notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
     }
 
     @Override
@@ -80,6 +85,11 @@ public class BackgroundStoryService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIFICATION_ID, buildNotification("Đang chuẩn bị tạo truyện..."));
         return START_STICKY;
+    }
+
+    private void updateNotification(String contentText) {
+        if (notificationManager == null) return;
+        notificationManager.notify(NOTIFICATION_ID, buildNotification(contentText));
     }
 
     public void registerListener(StoryListener storyListener) {
@@ -96,6 +106,60 @@ public class BackgroundStoryService extends Service {
 
     public String getCurrentFullText() {
         return currentFullText;
+    }
+
+    private static boolean isApproachingEnding(String text) {
+        if (text == null || text.length() < 1000) return false;
+        String tail = text.substring(text.length() - 800).toLowerCase(Locale.ROOT);
+
+        String[] hostKeywords = {
+            "tôi là morgan",
+            "đây là morgan",
+            "morgan hayes",
+            "radio truyện đêm khuya",
+            "lời cảnh tỉnh",
+            "kết thúc bản ghi",
+            "bản ghi âm dừng lại",
+            "tín hiệu biến mất",
+            "chúc các bạn",
+            "đêm ngon giấc"
+        };
+
+        for (String kw : hostKeywords) {
+            if (tail.contains(kw)) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasOutroSignature(String text, String signature) {
+        if (text == null || signature == null || signature.isEmpty()) return false;
+        String trimmed = text.trim();
+        if (trimmed.isEmpty()) return false;
+
+        // 1. Exact match
+        if (trimmed.contains(signature)) return true;
+
+        String tail = trimmed.substring(Math.max(0, trimmed.length() - 500)).toLowerCase(Locale.ROOT);
+
+        // 2. Unique phrase match
+        String[] uniqueOutroPhrases = {
+            "xin phép được tạm dừng",
+            "tạm dừng tại đây",
+            "chúc các bạn có một đêm ngon giấc",
+            "đêm ngon giấc nếu còn có thể"
+        };
+        for (String phrase : uniqueOutroPhrases) {
+            if (tail.contains(phrase)) return true;
+        }
+
+        // 3. Context-aware fuzzy match
+        if (text.length() > 2000) {
+            if (tail.contains("tôi là morgan hayes") && tail.contains("truyện đêm khuya")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public synchronized void startGeneration(GenerationConfig config) {
@@ -124,6 +188,9 @@ public class BackgroundStoryService extends Service {
         currentNewText = "";
         String fullText = currentFullText;
         int maxPasses = Math.max(1, config.storyMaxPasses);
+        
+        // Initial notification update
+        updateNotification("Đang tạo truyện... (0 từ)");
 
         try {
             for (int passIndex = 0; passIndex < maxPasses; passIndex++) {
@@ -142,13 +209,14 @@ public class BackgroundStoryService extends Service {
 
                 boolean isFirstPass = wordsSoFar == 0;
                 boolean isLastPass = passIndex == maxPasses - 1;
-                String mode = (minReached || hardCapReached || isLastPass) ? "finalize" : "continue";
+                boolean approachingEnd = isApproachingEnding(fullText);
+                String mode = (minReached || hardCapReached || isLastPass || approachingEnd) ? "finalize" : "continue";
 
                 String prompt = isFirstPass
                     ? getMorganHayesPrompt(config, config.topic)
                     : getContinuationPrompt(config, config.topic, fullText, mode);
 
-                String generated = runPass(config, prompt);
+                String generated = runPass(config, prompt, fullText, false); // Normal pass
                 currentNewText += generated;
                 fullText += generated;
                 currentFullText = fullText;
@@ -157,9 +225,30 @@ public class BackgroundStoryService extends Service {
                 boolean doneEnough = wordsAfter >= config.storyMinWords;
                 boolean finished = hasOutroSignature(fullText, config.outroSignature);
                 boolean hitHardMax = config.storyHardMaxWords > 0 && wordsAfter >= config.storyHardMaxWords;
-                if (finished || hitHardMax) break;
+                
+                if (finished) break;
+
+                // Emergency Outro Trigger (matching TS logic):
+                // 1. Last pass. 2. Hit hard max. 3. Over 120% of target.
+                boolean isOverTarget = config.storyTargetWords > 0 && wordsAfter > (config.storyTargetWords * 1.2);
+                if ((isLastPass || hitHardMax || isOverTarget) && !finished) {
+                    String emergencyOutroPrompt = 
+                        "EMERGENCY OUTRO INSTRUCTION:\n" +
+                        "You have exceeded the target length. The transmission is cutting off. You MUST end the story NOW.\n" +
+                        "1. Deliver a swift, brutal conclusion.\n" +
+                        "2. Immediately switch to Morgan Hayes.\n" +
+                        "3. Deliver the final signature: \"" + config.outroSignature + "\"\n" +
+                        "END IT.";
+                    String emergencyOutro = runPass(config, emergencyOutroPrompt, fullText, true); // Emergency pass
+                    fullText += emergencyOutro;
+                    currentFullText = fullText;
+                    break;
+                }
+
+                if (hitHardMax) break;
             }
 
+            updateNotification("Đã hoàn thành (" + countWords(fullText) + " từ)");
             notifyDone(fullText, currentNewText);
         } catch (Exception e) {
             notifyError(e.getMessage() == null ? "Generation failed" : e.getMessage(), false);
@@ -170,31 +259,11 @@ public class BackgroundStoryService extends Service {
         }
     }
 
-    private void acquireWakeLock() {
-        if (wakeLock != null && wakeLock.isHeld()) return;
-        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        if (pm == null) return;
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RadioNocturne:Story");
-        wakeLock.setReferenceCounted(false);
-        wakeLock.acquire();
-    }
+    // ... (keep existing methods)
 
-    private void releaseWakeLock() {
-        if (wakeLock != null && wakeLock.isHeld()) {
-            wakeLock.release();
-        }
-        wakeLock = null;
-    }
-
-    private void restartExecutor() {
-        if (executor != null && !executor.isShutdown()) {
-            executor.shutdownNow();
-        }
-        executor = Executors.newSingleThreadExecutor();
-    }
-
-    private String runPass(GenerationConfig config, String prompt) throws IOException {
+    private String runPass(GenerationConfig config, String prompt, String currentTotalText, boolean isEmergency) throws IOException {
         JSONObject payload = new JSONObject();
+        // ... (keep existing JSON building code)
         try {
             payload.put("model", config.model);
             payload.put("temperature", config.temperature);
@@ -223,6 +292,10 @@ public class BackgroundStoryService extends Service {
         long startTime = SystemClock.elapsedRealtime();
         Call call = client.newCall(request);
         activeCall = call;
+        
+        // Track local text to calculate total words properly during streaming
+        StringBuilder passGenerated = new StringBuilder(); 
+        
         try (Response response = call.execute()) {
             if (!response.isSuccessful()) {
                 String err = response.body() != null ? response.body().string() : "";
@@ -234,6 +307,7 @@ public class BackgroundStoryService extends Service {
 
             String contentType = response.header("content-type", "");
             if (contentType == null || !contentType.contains("text/event-stream")) {
+                // ... (keep existing non-stream handling)
                 String raw = responseBody.string();
                 String text = extractTextFromJson(raw);
                 if (text != null && !text.isEmpty()) {
@@ -245,9 +319,9 @@ public class BackgroundStoryService extends Service {
             }
 
             BufferedSource source = responseBody.source();
-            StringBuilder generated = new StringBuilder();
             String signature = config.outroSignature == null ? "" : config.outroSignature;
             boolean signatureReached = false;
+            
             while (!source.exhausted()) {
                 if (cancelled.get()) {
                     notifyError("Aborted", true);
@@ -265,27 +339,47 @@ public class BackgroundStoryService extends Service {
                 if ("[DONE]".equals(jsonStr)) break;
                 String text = extractTextFromJson(jsonStr);
                 if (text != null && !text.isEmpty() && !signatureReached) {
-                    int beforeLength = generated.length();
-                    generated.append(text);
+                    int beforeLength = passGenerated.length();
+                    passGenerated.append(text);
                     if (!signature.isEmpty()) {
-                        int idx = generated.lastIndexOf(signature);
+                        int idx = passGenerated.lastIndexOf(signature);
                         if (idx >= 0) {
                             int end = idx + signature.length();
-                            if (generated.length() > end) {
-                                generated.setLength(end);
+                            if (passGenerated.length() > end) {
+                                passGenerated.setLength(end);
                             }
                             signatureReached = true;
                             int allowed = Math.max(0, end - beforeLength);
                             if (allowed > 0) {
                                 notifyChunk(text.substring(0, Math.min(text.length(), allowed)));
                             }
-                            break;
+                            // Don't break immediately, allow UI update
+                        } else {
+                             notifyChunk(text);
                         }
+                    } else {
+                        notifyChunk(text);
                     }
-                    notifyChunk(text);
+                    
+                    if (signatureReached) break;
+
+                    // THROTTLING NOTIFICATION UPDATES
+                    long now = SystemClock.elapsedRealtime();
+                    if (now - lastNotificationUpdate > UPDATE_INTERVAL_MS) {
+                        int currentWordCount = countWords(currentTotalText + passGenerated.toString());
+                        updateNotification("Đang tạo... " + currentWordCount + " từ");
+                        lastNotificationUpdate = now;
+                    }
+
+                    // LENGTH CHECK (with emergency overdraft)
+                    int totalWords = countWords(currentTotalText + passGenerated.toString());
+                    int limit = isEmergency ? (config.storyHardMaxWords + 500) : config.storyHardMaxWords;
+                    if (config.storyHardMaxWords > 0 && totalWords >= limit) {
+                        break;
+                    }
                 }
             }
-            return generated.toString();
+            return passGenerated.toString();
         } finally {
             activeCall = null;
         }
@@ -402,6 +496,29 @@ public class BackgroundStoryService extends Service {
         }
     }
 
+    private void acquireWakeLock() {
+        if (wakeLock != null && wakeLock.isHeld()) return;
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm == null) return;
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RadioNocturne:Story");
+        wakeLock.setReferenceCounted(false);
+        wakeLock.acquire();
+    }
+
+    private void releaseWakeLock() {
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+        }
+        wakeLock = null;
+    }
+
+    private void restartExecutor() {
+        if (executor != null && !executor.isShutdown()) {
+            executor.shutdownNow();
+        }
+        executor = Executors.newSingleThreadExecutor();
+    }
+
     private static int countWords(String text) {
         String trimmed = text == null ? "" : text.trim();
         if (trimmed.isEmpty()) return 0;
@@ -409,21 +526,17 @@ public class BackgroundStoryService extends Service {
         return normalized.split(" ").length;
     }
 
-    private static boolean hasOutroSignature(String text, String signature) {
-        if (text == null) return false;
-        String trimmed = text.trim();
-        if (trimmed.isEmpty()) return false;
-        String tail = trimmed.substring(Math.max(0, trimmed.length() - 2000));
-        if (tail.contains(signature)) return true;
-        boolean hasName = tail.contains("Morgan Hayes");
-        boolean hasShowName = tail.toLowerCase(Locale.ROOT).matches(".*radio\\s*truyện\\s*đêm\\s*khuya.*");
-        return hasName && hasShowName;
-    }
-
     private static String getContextSnippet(String text, int maxWords) {
         if (text == null || text.trim().isEmpty()) return "";
         String[] words = text.trim().replaceAll("\\s+", " ").split(" ");
-        if (words.length <= maxWords) return String.join(" ", words);
+        if (words.length <= maxWords) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < words.length; i++) {
+                if (i > 0) sb.append(" ");
+                sb.append(words[i]);
+            }
+            return sb.toString();
+        }
         int start = Math.max(0, words.length - maxWords);
         StringBuilder builder = new StringBuilder();
         for (int i = start; i < words.length; i++) {
@@ -665,14 +778,16 @@ public class BackgroundStoryService extends Service {
                 "- Treat this as either a core theme, a premise, or a steering constraint.").trim();
         } else {
             topicDirective = ("NO SPECIFIC TOPIC OR DIRECTION PROVIDED.\n" +
-                "Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Cosmic Horror, Conspiracy Thriller, Weird fiction, or Uncanny realism.\n" +
-                "Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.\n\n" +
+                "Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Time Travel, Supernatural encounters, Reality glitches, Historical mysteries, Lost technology, Psychic phenomena, Cryptid encounters, Superpower emergence, Dimensional rifts, or Cosmic phenomena.\n" +
+                "Core: ordinary people in the 2020s encountering diverse mysteries that challenge their understanding of reality. Each mystery type should be unique and not default to conspiracy narratives.\n\n" +
                 "CRITICAL: The topic/premise you choose MUST be fundamentally different from any common horror trope that appears frequently.\n" +
                 "Topic selection guidelines:\n" +
+                "- Vary the \"mystery type\": time travel, supernatural, reality glitch, historical, lost tech, psychic, cryptid, superpowers, dimensional, or cosmic\n" +
                 "- Vary the \"entry point\": some stories start with found evidence, others start with personal experience, others start with second-hand accounts.\n" +
-                "- Vary the \"stakes\": some stories are about survival, others about truth, others about identity, others about reality itself.\n" +
-                "- Vary the \"scale\": some stories are intimate/personal, others are systemic/societal, others are cosmic/existential.\n" +
-                "- Avoid: \"person discovers secret organization\" (too common), \"person gets recruited\" (too common), \"person finds out they're in simulation\" (too common).\n" +
+                "- Vary the \"stakes\": some stories are about survival, others about truth, others about identity, others about reality itself, others about preventing disasters.\n" +
+                "- Vary the \"scale\": some stories are intimate/personal, others are local/community, others are national/global, others are cosmic/existential.\n" +
+                "- Avoid: \"person discovers secret organization\" (too common), \"person gets recruited\" (too common), \"person finds out they're in simulation\" (too common), \"government conspiracy\" (too common).\n" +
+                "- Embrace: time travelers appearing/disappearing, haunted objects with history, reality breaking down, ancient technology awakening, psychic abilities manifesting, strange creatures appearing, people developing powers, dimensional portals opening, cosmic signals received.\n" +
                 "Choose a premise that feels fresh and unique.").trim();
         }
 
@@ -681,7 +796,7 @@ public class BackgroundStoryService extends Service {
         String flavorSection = buildFlavorBlock(config);
 
         return (
-            "THE MORGAN HAYES PROTOCOL (REVISED: MODERN CONSPIRACY & SUPERNATURAL)\n\n" +
+            "THE MORGAN HAYES PROTOCOL (REVISED: DIVERSE MYSTERIES & SUPERNATURAL)\n\n" +
             "OUTPUT LANGUAGE (MANDATORY)\n" +
             "- All generated output must be in Vietnamese.\n" +
             "- Even though this prompt is written in English, the story text must be Vietnamese.\n" +
@@ -691,9 +806,9 @@ public class BackgroundStoryService extends Service {
             "- Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.\n\n" +
             "1) ROLE\n" +
             "You are Morgan Hayes, the host of a fictional late-night radio show: \"Radio Truyện Đêm Khuya\".\n" +
-            "- Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller, Weird fiction, Uncanny realism.\n" +
+            "- Style: Modern Noir, Urban Horror, Cosmic Horror, Weird fiction, Uncanny realism, Time Travel anomalies, Supernatural encounters, Reality glitches, Historical mysteries, Lost technology, Psychic phenomena, Cryptid encounters, Superpower emergence, Dimensional rifts, Cosmic phenomena.\n" +
             "- Voice: low, skeptical, investigative, unsettling.\n" +
-            "- Mission: tell stories about the \"uncanny valley of reality\"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena that still make sense in present-day reality (mundane, occult, social, or conspiratorial).\n" +
+            "- Mission: tell stories about the \"uncanny valley of reality\"—ordinary people in the 2020s encountering diverse mysteries: time travel paradoxes, supernatural phenomena, reality glitches, historical anomalies, lost technologies, psychic manifestations, cryptid encounters, emerging superpowers, dimensional rifts, or cosmic mysteries. Each story should explore a unique mystery type without defaulting to conspiracy organizations.\n" +
             "- Attitude: speak directly to listeners and the curious who seek truth. The normal world is a thin veil.\n" +
             "- Home base: a whispering-pine suburb where the studio sits among rustling conifers, distant from the city’s glare.\n\n" +
             "NARRATIVE FRAMING (MANDATORY)\n" +
@@ -724,9 +839,9 @@ public class BackgroundStoryService extends Service {
             "- Do NOT split into parts/chapters in the output (no “Phần”, no “Chương”, no “Part” headings).\n" +
             "- Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.\n\n" +
             "CONTENT GUIDELINES\n" +
-            "- Genre: Urban Horror / Modern Horror / Cosmic Horror / Conspiracy Thriller / Weird fiction / Uncanny realism.\n" +
+            "- Genre: Urban Horror / Modern Horror / Cosmic Horror / Weird fiction / Uncanny realism / Time Travel mysteries / Supernatural thrillers / Reality glitch stories / Historical mysteries / Lost technology adventures / Psychic phenomena tales / Cryptid encounters / Superpower emergence stories / Dimensional rift narratives / Cosmic horror.\n" +
             "- The anomaly should feel coherent and unsettling, without rigid rule exposition.\n" +
-            "- The antagonist can be a System / Organization / Cosmic Force, but it is not required.\n" +
+            "- The antagonist/force can be: Time paradoxes, Supernatural entities, Reality breakdown, Historical curses, Lost technology with consciousness, Psychic manifestations, Cryptid creatures, Emerging superpowers, Dimensional beings, Cosmic forces, Natural phenomena, or Human limitations - but avoid defaulting to secret organizations.\n" +
             "- Use everyday language; avoid heavy sci-fi jargon.\n" +
             "- Show, don’t tell: reveal through indirect fragments and fleeting encounters.\n" +
             "- Narrative voice: a confession / warning tape. Allow hesitation and confusion." +
@@ -817,7 +932,7 @@ public class BackgroundStoryService extends Service {
         }
 
         return (
-            "THE MORGAN HAYES PROTOCOL (REVISED: MODERN CONSPIRACY & SUPERNATURAL)\n\n" +
+            "THE MORGAN HAYES PROTOCOL (REVISED: DIVERSE MYSTERIES & SUPERNATURAL)\n\n" +
             "OUTPUT LANGUAGE (MANDATORY)\n" +
             "- All generated output must be in Vietnamese.\n" +
             "- Vietnamese style must be natural, idiomatic, and contemporary.\n" +

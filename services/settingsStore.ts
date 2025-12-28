@@ -29,9 +29,9 @@ const ENV_STORY_MODEL = import.meta.env.VITE_DEEPSEEK_MODEL || 'deepseek-reasone
 export const TARGET_MIN_WORDS = 2000;
 export const TARGET_MAX_WORDS = 10000;
 export const TARGET_MIN_OFFSET = 700;
-export const TARGET_MAX_OFFSET = 800;
+export const TARGET_MAX_OFFSET = 1500;
 
-const DEFAULT_STORY_TEMPERATURE = 1.6;
+const DEFAULT_STORY_TEMPERATURE = 1.5;
 const MIN_TEMPERATURE = 0.1;
 const MAX_TEMPERATURE = 2.0;
 

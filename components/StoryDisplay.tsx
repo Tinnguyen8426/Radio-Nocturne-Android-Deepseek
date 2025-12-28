@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Maximize2, Minimize2, Type, Minus, Plus } from 'lucide-react';
+import { Download, Maximize2, Minimize2, Type, Minus, Plus, AlertTriangle } from 'lucide-react';
 import { Language } from '../types';
 import { exportStoryToTxt } from '../services/storyExport';
 
@@ -12,6 +12,8 @@ interface StoryDisplayProps {
   onJumpRequest?: (offset: number) => void;
   thoughtStream?: string;
 }
+
+const OUTRO_SIGNATURE = "Tôi là Morgan Hayes, và radio Truyện Đêm Khuya xin phép được tạm dừng tại đây. Chúc các bạn có một đêm ngon giấc nếu còn có thể.";
 
 const StoryDisplay: React.FC<StoryDisplayProps> = ({
   text,
@@ -28,6 +30,15 @@ const StoryDisplay: React.FC<StoryDisplayProps> = ({
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(18);
   const [isReadingMode, setIsReadingMode] = useState(false);
+  
+  // Check if story has outro signature
+  const hasOutroSignature = useMemo(() => {
+    return text.includes(OUTRO_SIGNATURE);
+  }, [text]);
+  
+  const isStoryIncomplete = useMemo(() => {
+    return !isGenerating && text.length > 0 && !hasOutroSignature;
+  }, [isGenerating, text.length, hasOutroSignature]);
   const wordCount = useMemo(() => {
     const normalized = text.trim().replace(/\s+/g, ' ');
     if (!normalized) return 0;
@@ -258,6 +269,12 @@ const StoryDisplay: React.FC<StoryDisplayProps> = ({
           <span className="px-2 py-1 rounded-full bg-red-900/30 border border-red-800 text-red-100 uppercase tracking-wide">
             {topic || (language === 'vi' ? 'Tần số ngẫu nhiên' : 'Untitled broadcast')}
           </span>
+          {isStoryIncomplete && (
+            <span className="px-2 py-1 rounded-full bg-amber-900/30 border border-amber-800 text-amber-100 uppercase tracking-wide flex items-center gap-1">
+              <AlertTriangle size={10} />
+              {language === 'vi' ? 'Chưa hoàn thành' : 'Incomplete'}
+            </span>
+          )}
           {exportNote && (
             <span className="text-[11px] text-zinc-500 truncate max-w-[320px]">{exportNote}</span>
           )}

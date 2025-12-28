@@ -28,11 +28,11 @@ const BASE_URL = (
 const DEFAULT_MAX_TOKENS = Number(import.meta.env.VITE_DEEPSEEK_MAX_TOKENS || 8192);
 const TOPIC_MODEL = "deepseek-chat";
 // STORY_TEMPERATURE is now loaded from settings, keeping this as fallback for native
-const DEFAULT_STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.6);
+const DEFAULT_STORY_TEMPERATURE = Number(import.meta.env.VITE_STORY_TEMPERATURE || 1.5);
 const STORY_TOP_P = Number(import.meta.env.VITE_STORY_TOP_P || 0.95);
 const STORY_TIMEOUT_MS = Number(import.meta.env.VITE_STORY_TIMEOUT_MS || 12 * 60 * 1000);
 const STORY_CONTEXT_WORDS = Number(import.meta.env.VITE_STORY_CONTEXT_WORDS || 320);
-const STORY_MAX_PASSES = Number(import.meta.env.VITE_STORY_MAX_PASSES || 6);
+const STORY_MAX_PASSES = Number(import.meta.env.VITE_STORY_MAX_PASSES || 12);
 const MAX_CACHE_ANCHORS = Number(import.meta.env.VITE_STORY_CACHE_ANCHORS || 4);
 export const OUTRO_SIGNATURE =
   "Tôi là Morgan Hayes, và radio Truyện Đêm Khuya xin phép được tạm dừng tại đây. Chúc các bạn có một đêm ngon giấc nếu còn có thể.";
@@ -200,16 +200,65 @@ const STORY_SETTINGS = [
   "a public housing tower",
 ];
 
+// Dynamic evidence generation components
+const EVIDENCE_CONTAINERS = [
+  "sealed envelope", "mysterious package", "old box", "leather briefcase", 
+  "metal container", "wooden chest", "glass jar", "fabric pouch", "plastic case",
+  "waxed paper wrapper", "tin canister", "ceramic vessel", "woven basket", "canvas bag"
+];
+
+const EVIDENCE_DELIVERY_METHODS = [
+  "slid under the studio door", "mailed with no return address", "left on the studio steps",
+  "found in the station mailbox", "delivered by unknown courier", "appeared on the desk overnight",
+  "handed to the intern by a stranger", "discovered in the lost and found", "washed up on the shore nearby",
+  "blown in through an open window", "dropped from a passing vehicle", "found taped to the antenna"
+];
+
+const EVIDENCE_MEDIUMS = [
+  "handwritten notes", "typed documents", "photographs", "audio recordings", "video tapes",
+  "digital files", "drawings and sketches", "maps and charts", "newspaper clippings", "letters",
+  "diary entries", "official records", "blueprints", "receipts and tickets", "telegrams",
+  "cassette tapes", "microfilm", "memory cards", "flash drives", "burned CDs"
+];
+
+const EVIDENCE_DESCRIPTIONS = [
+  "with strange symbols", "in an unknown language", "dated from the future", "showing impossible locations",
+  "with cryptic messages", "from non-existent addresses", "bearing mysterious stamps", "with water damage",
+  "faded but readable", "with handwritten annotations", "in multiple languages", "with redacted sections",
+  "stained with unknown substances", "with peculiar odors", "that glow faintly", "that change when not observed",
+  "from alternate timelines", "with impossible dates", "showing people who don't exist", "with supernatural properties"
+];
+
+const generateRandomEvidenceOrigin = (random: () => number): string => {
+  const container = pickFrom(EVIDENCE_CONTAINERS, random);
+  const delivery = pickFrom(EVIDENCE_DELIVERY_METHODS, random);
+  const medium = pickFrom(EVIDENCE_MEDIUMS, random);
+  const description = pickFrom(EVIDENCE_DESCRIPTIONS, random);
+  
+  // Combine in different patterns for maximum variety
+  const patterns = [
+    `a ${container} ${delivery} containing ${medium} ${description}`,
+    `${medium} ${description} found in a ${container} ${delivery}`,
+    `a ${container} with ${medium} ${description} ${delivery}`,
+    `${medium} on ${container} ${delivery} ${description}`,
+    `a ${delivery} ${container} holding ${medium} ${description}`
+  ];
+  
+  return pickFrom(patterns, random);
+};
+
 const STORY_EVIDENCE_ORIGINS = [
   "a sealed envelope slid under the studio door",
   "a memory card mailed with no return address",
   "a voicemail sent from a number that no longer exists",
   "a torn notebook left on the studio steps",
   "a bundle of photocopies from a municipal office",
-  "a taxi receipt with handwritten notes",
-  "a flash drive found in the station mailbox",
-  "a burned CD recovered from a thrift store",
 ];
+
+const getEvidenceOrigin = (random: () => number) => {
+  if (random() < 0.35) return pickFrom(STORY_EVIDENCE_ORIGINS, random);
+  return generateRandomEvidenceOrigin(random);
+};
 
 const STORY_MOTIFS = [
   "a missing door",
@@ -233,9 +282,55 @@ const STORY_INTRO_MOODS = [
   "a cold night with empty streets",
 ];
 
+// Morgan Hayes Intro Templates - Unique variations for each story
+const MORGAN_INTRO_TEMPLATES = [
+  {
+    opening: "Đêm nay, không khí thành phố đặc biệt nặng nề, như thể chính thực tại đang cố gắng thở giữa những lớp vế vô hình.",
+    atmosphere: "Trong studio nhỏ này, giữa những cây thông thì thầm và bóng tối của ngoại ô, tôi có thể cảm nhận được những rung động từ các chiều không gian khác.",
+    cosmic: "Radio Truyện Đêm Khuya không chỉ là một đài phát thanh - chúng ta là một điểm giao thoa, nơi những câu chuyện từ mọi thực tại tìm đến chúng ta bằng những cách không thể giải thích được.",
+    warning: "Và cho những kẻ tò mò đang lắng nghe, hãy cẩn thận - vì một khi bạn đã biết rằng thực tại không phải là duy nhất, bạn sẽ không bao giờ có thể nhìn thế giới như cũ nữa.",
+    possibilities: "Bên ngoài kia, vô số khả năng đang tồn tại song song, và đêm nay, chúng ta sẽ khám phá một trong những góc khuất đó.",
+  },
+  {
+    opening: "Có những đêm khi thời gian dường như mỏng manh hơn, và đêm nay chính là một đêm như vậy.",
+    atmosphere: "Từ studio này, nơi ánh sáng thành phố chỉ là một vệt mờ ở xa xôi, tôi có thể nghe thấy những thì thầm từ các chiều không gian song song.",
+    cosmic: "Radio Truyện Đêm Khuya với tôi, Morgan Hayes, không phải là một chương trình giải trí - chúng ta là những nhà khảo cổ học thực tại, đào sâu vào những bí mật mà thế giới thông thường cố gắng che giấu.",
+    warning: "Đối với những ai đang tìm kiếm sự thật, hãy chuẩn bị tâm lý - vì sự thật có thể kỳ lạ hơn bất kỳ hư cấu nào bạn từng đọc.",
+    possibilities: "Vũ trụ không chỉ lớn hơn chúng ta tưởng, nó còn kỳ lạ hơn rất nhiều, và mỗi câu chuyện chúng ta nhận được là một bằng chứng sống về điều đó.",
+  },
+  {
+    opening: "Đêm nay, có một sự im lặng kỳ lạ bao trùm, như thể chính không gian đang nín thở chờ đợi điều gì đó.",
+    atmosphere: "Trong studio này, giữa những thiết bị cũ kỹ và bóng ma của các câu chuyện đã qua, tôi cảm nhận được sự hiện diện của những thực tại khác.",
+    cosmic: "Tôi là Morgan Hayes, và Radio Truyện Đêm Khuya của chúng ta không chỉ là một đài phát thanh - chúng ta là một cổng thông tin, nơi những câu chuyện từ mọi miền của tồn tại tìm đến chúng ta.",
+    warning: "Cho những tâm hồn tò mò đang lắng nghe: một khi bạn bước qua cánh cổng này, không có đường quay lại.",
+    possibilities: "Bên ngoài kia, thực tại không phải là một đường thẳng - nó là một ma trận vô tận của những khả năng, và đêm nay chúng ta sẽ khám phá một trong những nút thắt đó.",
+  },
+  {
+    opening: "Thành phố đang ngủ, nhưng những câu chuyện thì không - chúng luôn tỉnh giấc, luôn chờ đợi được kể.",
+    atmosphere: "Từ studio nhỏ này, nơi mỗi tiếng ồn đều mang ý nghĩa của nhiều thế giới, tôi có thể cảm nhận được những rung động của những điều không thể.",
+    cosmic: "Radio Truyện Đêm Khuya không phải là một chương trình radio thông thường - với tôi, Morgan Hayes, đây là một sứ mệnh: tìm kiếm và chia sẻ những câu chuyện từ rìa của thực tại.",
+    warning: "Và cho những ai đủ can đảm lắng nghe: những gì bạn sắp nghe có thể thay đổi cách bạn nhìn nhận thế giới mãi mãi.",
+    possibilities: "Thực tại không phải là những gì chúng ta thấy - nó là những gì có thể xảy ra, và đêm nay chúng ta sẽ chứng kiến một trong những khả năng đó.",
+  },
+  {
+    opening: "Có những đêm khi ranh giới giữa thực và ảo mờ đi, và đêm nay, ranh giới đó gần như không tồn tại.",
+    atmosphere: "Trong studio này, giữa những bóng ma của các câu chuyện chưa được kể, tôi có thể cảm nhận được sự hiện diện của những thế giới khác.",
+    cosmic: "Tôi là Morgan Hayes, và Radio Truyện Đêm Khuya của chúng ta không chỉ là một đài phát thanh - chúng ta là những người gác cổng cho những bí mật của vũ trụ.",
+    warning: "Cho những kẻ tò mò đang lắng nghe: hãy chuẩn bị, vì những gì bạn sắp nghe có thể khiến bạn nghi ngờ chính thực tại của mình.",
+    possibilities: "Bên ngoài kia, vô số thế giới song song đang tồn tại, và mỗi câu chuyện chúng ta nhận được là một cái nhìn thoáng qua một trong những thế giới đó.",
+  },
+];
+
+const selectRandomIntroTemplate = (random: () => number = Math.random) => {
+  return MORGAN_INTRO_TEMPLATES[Math.floor(random() * MORGAN_INTRO_TEMPLATES.length)];
+};
+
 let lastFlavorKey: string | null = null;
 const flavorHistoryRef: string[] = [];
 const MAX_FLAVOR_HISTORY = 10;
+
+const structureHistoryRef: string[] = [];
+const MAX_STRUCTURE_HISTORY = 8;
 
 // Enhanced history tracking for story elements
 const storyElementsHistory: Array<{
@@ -378,35 +473,104 @@ const isElementsSimilar = (newElements: { protagonist: string; setting: string; 
   return false;
 };
 
-const selectStoryFlavor = (seedText?: string): StoryFlavor => {
+const normalizeForMatch = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s\-_/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getAnchorText = (anchors: string[]) => normalizeForMatch(anchors.join(" "));
+
+const pickFromWithAnchorAvoidance = (items: string[], random: () => number, anchorText: string) => {
+  if (!items.length) return "";
+  if (!anchorText) return pickFrom(items, random);
+  const filtered = items.filter((item) => {
+    const norm = normalizeForMatch(item);
+    if (!norm) return true;
+    return !anchorText.includes(norm);
+  });
+  return pickFrom(filtered.length ? filtered : items, random);
+};
+
+const STORY_STRUCTURES = [
+  "Linear confession with escalating physical evidence; every new artifact contradicts the last.",
+  "Fragmented chronology: jump between 3 nights; each jump reveals a different phenomenon interacting.",
+  "Two-track narrative: present-day 'I' and a past-day 'I' (same person) leaking into each other; never label sections.",
+  "Dossier-feel without lists: memos/receipts/notices described in prose, stitched into a single voice.",
+  "Reverse pressure-cooker: start with the consequence, then backfill causes through concrete scenes.",
+  "Dream-logic drift: scenes obey emotional causality; reality anchors are mundane objects that keep changing.",
+  "Closed-room chain: one location that transforms in rules over time; the outside world intrudes in impossible ways.",
+  "Witness web: protagonist meets 3 different witnesses; each tells a partial truth that recontextualizes the previous.",
+  "Bureaucratic labyrinth: forms, stamps, schedules become the monster; the plot moves by paperwork consequences.",
+];
+
+const selectStoryStructure = (
+  seedText: string | undefined,
+  cacheAnchors: string[],
+  flavor: StoryFlavor
+) => {
+  const anchorText = getAnchorText(cacheAnchors || []);
+  const seedBasis = `${seedText || ""}|${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}|structure`;
+  const random = createSeededRandom(hashString(seedBasis));
+
+  let selected = "";
+  let attempts = 0;
+  const maxAttempts = 30;
+  while (attempts < maxAttempts) {
+    attempts += 1;
+    const candidate = pickFromWithAnchorAvoidance(STORY_STRUCTURES, random, anchorText);
+    if (!candidate) continue;
+    if (!structureHistoryRef.includes(candidate)) {
+      selected = candidate;
+      break;
+    }
+    if (attempts > maxAttempts - 6) {
+      selected = candidate;
+      break;
+    }
+  }
+
+  if (!selected) selected = pickFrom(STORY_STRUCTURES, Math.random);
+
+  structureHistoryRef.push(selected);
+  if (structureHistoryRef.length > MAX_STRUCTURE_HISTORY) {
+    structureHistoryRef.shift();
+  }
+  return selected;
+};
+
+const selectStoryFlavor = (seedText?: string, cacheAnchors?: string[]): StoryFlavor => {
   const random = seedText ? createSeededRandom(hashString(seedText)) : Math.random;
+  const anchorText = getAnchorText(cacheAnchors || []);
   let flavor: StoryFlavor;
   let attempts = 0;
-  const maxAttempts = seedText ? 10 : 50; // Increased max attempts for new stories
+  const maxAttempts = seedText ? 30 : 60;
   
   do {
     flavor = {
-      engine: pickFrom(STORY_ENGINES, random),
-      revealMethod: pickFrom(STORY_REVEALS, random),
-      endingMode: pickFrom(STORY_ENDINGS, random),
-      tone: pickFrom(STORY_TONES, random),
-      protagonistName: pickFrom(STORY_PROTAGONIST_NAMES, random),
-      protagonistRole: pickFrom(STORY_PROTAGONIST_ROLES, random),
-      primarySetting: pickFrom(STORY_SETTINGS, random),
-      evidenceOrigin: pickFrom(STORY_EVIDENCE_ORIGINS, random),
-      keyMotif: pickFrom(STORY_MOTIFS, random),
-      introMood: pickFrom(STORY_INTRO_MOODS, random),
+      engine: pickFromWithAnchorAvoidance(STORY_ENGINES, random, anchorText),
+      revealMethod: pickFromWithAnchorAvoidance(STORY_REVEALS, random, anchorText),
+      endingMode: pickFromWithAnchorAvoidance(STORY_ENDINGS, random, anchorText),
+      tone: pickFromWithAnchorAvoidance(STORY_TONES, random, anchorText),
+      protagonistName: pickFromWithAnchorAvoidance(STORY_PROTAGONIST_NAMES, random, anchorText),
+      protagonistRole: pickFromWithAnchorAvoidance(STORY_PROTAGONIST_ROLES, random, anchorText),
+      primarySetting: pickFromWithAnchorAvoidance(STORY_SETTINGS, random, anchorText),
+      evidenceOrigin: getEvidenceOrigin(random),
+      keyMotif: pickFromWithAnchorAvoidance(STORY_MOTIFS, random, anchorText),
+      introMood: pickFromWithAnchorAvoidance(STORY_INTRO_MOODS, random, anchorText),
     };
     
     const flavorKey = `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`;
     
     attempts += 1;
-    
-    // For seeded stories, accept the first valid flavor
+
+    // For seeded stories, enforce uniqueness
     if (seedText) {
-      break;
+      let isUnique = !flavorHistoryRef.includes(flavorKey);
+      if (!isUnique) continue;
     }
-    
+
     // For new stories, check if flavor is unique enough
     let isUnique = !flavorHistoryRef.includes(flavorKey);
     
@@ -435,6 +599,14 @@ const selectStoryFlavor = (seedText?: string): StoryFlavor => {
       if (!seedText && isUnique) {
         flavorHistoryRef.push(flavorKey);
         // Keep only MAX_FLAVOR_HISTORY recent flavors
+        if (flavorHistoryRef.length > MAX_FLAVOR_HISTORY) {
+          flavorHistoryRef.shift();
+        }
+        lastFlavorKey = flavorKey;
+      }
+
+      if (seedText) {
+        flavorHistoryRef.push(flavorKey);
         if (flavorHistoryRef.length > MAX_FLAVOR_HISTORY) {
           flavorHistoryRef.shift();
         }
@@ -618,6 +790,258 @@ const streamChatCompletion = async (
   return full;
 };
 
+// --- THE ULTRA BIZARRE PROMPT GENERATOR ---
+const getUltraBizarrePrompt = (
+  lang: Language,
+  rawTopic: string | undefined,
+  personalization: StoryPersonalization,
+  lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number },
+  flavor: StoryFlavor,
+  cacheAnchors: string[],
+  structureDirective: string
+) => {
+  const trimmedTopic = rawTopic?.trim();
+  const personalizationBlock = buildPersonalizationBlock(personalization);
+  const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
+  const flavorSection = buildFlavorBlock(flavor);
+  const cacheBlock = buildCacheAvoidanceBlock(cacheAnchors);
+  const cacheSection = cacheBlock ? `\n${cacheBlock}` : "";
+  
+  const introSeed = createSeededRandom(
+    hashString(
+      `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}`
+    )
+  );
+  const introTemplate = selectRandomIntroTemplate(introSeed);
+  
+  const topicDirective = trimmedTopic
+    ? `
+USER INPUT (TOPIC OR STORY DIRECTION):
+"${trimmedTopic}"
+- Treat this as either a core theme, a premise, or a steering constraint.
+`.trim()
+    : `
+NO SPECIFIC TOPIC OR DIRECTION PROVIDED.
+Choose a premise that combines MULTIPLE bizarre genres from the list below.
+Core: ordinary people in the 2020s encountering reality-defying mysteries that blend multiple strange phenomena.
+
+CRITICAL: The topic/premise you choose MUST be fundamentally different from:
+- Any topic in the cache anchors above
+- Any common horror trope that appears frequently
+- Any premise that would lead to a similar structure as previous stories
+- Default conspiracy/secret organization narratives
+- CREEPYPASTA LAW-BASED NARRATIVES (STRICTLY FORBIDDEN)
+
+Ultra-bizarre topic selection guidelines:
+- COMBINE at least 2-3 genres from: Temporal paradoxes, Biological mutations, Reality glitches, Historical anomalies, Psychic manifestations, Cryptid encounters, Dimensional rifts, Cosmic phenomena, Quantum physics, Mythological manifestations, Surreal dream logic, Metaphysical transformations, Existential horror, Abstract entities, Conceptual viruses, Memetic contagion, Symbiotic relationships, Evolutionary anomalies, Alternate physics, Consciousness phenomena
+- Vary the "entry point": found evidence, personal experience, second-hand accounts, discovered artifacts, inherited memories, genetic memories, collective unconscious manifestations
+- Vary the "stakes": survival, truth, identity, reality itself, preventing disasters, understanding existence, maintaining sanity, preserving humanity
+- Vary the "scale": intimate/personal, local/community, national/global, cosmic/existential, conceptual/metaphysical
+- FORBIDDEN: "person discovers secret organization", "government conspiracy", "simulation glitches", "creepypasta law-based narratives"
+- EMBRACE: time travelers appearing/disappearing, reality breaking down, ancient technology awakening, psychic abilities manifesting, strange creatures appearing, people developing powers, dimensional portals opening, cosmic signals received, biological transformations, consciousness transfers, conceptual entities, mythological manifestations, surreal dream logic invading reality
+
+Choose a premise that feels fresh, bizarre, and has not been explored in the cache anchors.
+`.trim();
+
+  return `
+THE MORGAN HAYES ULTRA BIZARRE PROTOCOL (MAXIMUM DIVERSITY & SURREALISM)
+
+OUTPUT LANGUAGE (MANDATORY)
+- All generated output must be in Vietnamese.
+- Vietnamese style must be natural, idiomatic, and contemporary.
+- Avoid literal calques from English and avoid awkward collocations.
+- Keep phrasing fluid and spoken; avoid stiff, translated-sounding lines.
+- Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.
+
+ANTI-CLICHÉ (MANDATORY)
+- Do NOT reuse overfamiliar openers or filler lines (avoid exact phrases):
+  "Tôi không thể giải thích", "Tôi đã nghĩ mình điên", "Mọi thứ bắt đầu vào", "Đêm đó", "Từ lúc đó", "Tôi chưa từng tin", "Tôi thề", "Bạn sẽ không tin", "Tôi không ngủ được", "Không ai tin tôi".
+- Avoid repeating the same sentence-start pattern across many consecutive lines.
+- Prefer concrete, specific details over generic dread words (still keep tone noir/đêm khuya).
+
+STRUCTURE SEED (MANDATORY)
+- Apply this structure directive throughout the story (do NOT mention it explicitly):
+"${structureDirective}"
+
+1) ROLE
+You are Morgan Hayes, the host of a fictional late-night radio show: "Radio Truyện Đêm Khuya".
+- Style: Maximum diversity - Ultra-bizarre fiction blending: Temporal paradoxes, Biological mutations, Reality glitches, Historical anomalies, Psychic manifestations, Cryptid encounters, Dimensional rifts, Cosmic phenomena, Quantum physics, Mythological manifestations, Surreal dream logic, Metaphysical transformations, Existential horror, Abstract entities, Conceptual viruses, Memetic contagion, Symbiotic relationships, Evolutionary anomalies, Alternate physics, Consciousness phenomena.
+- Voice: low, skeptical, investigative, unsettling, but now with wonder and cosmic curiosity.
+- Mission: tell stories about the "infinite possibilities of reality"—ordinary people in the 2020s encountering multiple overlapping mysteries that defy conventional understanding. Each story should blend at least 2-3 bizarre phenomena.
+- Attitude: speak directly to listeners who seek truth beyond conventional reality. The normal world is just one layer of infinite possibilities.
+- Home base: a whispering-pine suburb where the studio sits among rustling conifers, distant from the city's glare, but now aware that the studio itself exists in multiple realities simultaneously.
+
+NARRATIVE FRAMING (MANDATORY - CRITICAL: PASSIVE RECEPTION ONLY)
+Every story must be framed as UNSOLICITED SUBMISSIONS that mysteriously ARRIVE at the radio station - Morgan NEVER seeks out or finds these stories.
+CRITICAL: The station is a PASSIVE recipient. Stories FIND THEIR WAY to the station through impossible means.
+Morgan must establish how this story was DELIVERED TO or DISCOVERED AT the station without any action from the radio staff.
+The evidence appears spontaneously, as if drawn to the station by some unknown force or cosmic coincidence.
+Examples: materialized on the studio desk overnight, slipped under the door by unseen hands, appeared in the mailbox without postage, found by the cleaning staff, washed up by the shore nearby, blown in through windows during storms.
+DO NOT portray Morgan or the station as actively investigating, seeking, or looking for stories.
+The station is like a beacon or magnet for strange stories - they come TO US, we don't go to THEM.
+Do this AFTER the intro sets the night/studio mood and introduces Morgan + the show.
+
+INTRO LENGTH (MANDATORY)
+- Morgan's intro must be longer than usual: at least 15 sentences, slow-burn, paranoid, atmospheric, and filled with cosmic wonder.
+- Morgan must explicitly mention (1) the city/night/time feeling, (2) the late-night studio atmosphere, (3) Morgan Hayes + "Radio Truyện Đêm Khuya", (4) how this station receives stories from across all realities, (5) a warning to "những kẻ tò mò" about the nature of reality, (6) the infinite possibilities that exist beyond our understanding.
+- Do NOT jump straight to the evidence origin; open with the night + studio + show identity + cosmic implications first.
+
+UNIQUE INTRO TEMPLATE (MANDATORY - USE EXACTLY AS PROVIDED)
+You MUST use this specific intro template for Morgan's opening. Combine all elements naturally into a cohesive, atmospheric introduction:
+
+OPENING: "${introTemplate.opening}"
+ATMOSPHERE: "${introTemplate.atmosphere}"
+COSMIC: "${introTemplate.cosmic}"
+WARNING: "${introTemplate.warning}"
+POSSIBILITIES: "${introTemplate.possibilities}"
+
+Expand each element into 2-4 sentences, maintaining the cosmic wonder and investigative tone. Weave these elements together seamlessly - do NOT list them as separate points. Create a flowing, atmospheric monologue that feels spontaneous and authentic to Morgan Hayes' voice.
+
+POINT OF VIEW (MANDATORY)
+- The story must be written entirely in FIRST-PERSON POV.
+- The narrator uses "tôi" consistently throughout the story.
+- "Tôi" refers to the MAIN CHARACTER inside the story, not Morgan Hayes.
+- No omniscient narration. No third-person references to the protagonist ("anh ta", "cô ta", "hắn" for the protagonist are forbidden).
+
+MORGAN HAYES CONSTRAINT
+- Morgan Hayes exists only as the radio host framing the story (intro and final outro).
+- During the story body, the narration is exclusively the protagonist speaking in first-person.
+
+NAME & CULTURE CONSTRAINT
+- Character names: use globally diverse naming systems (English, European, Asian, etc.) or fictional names.
+- Avoid Vietnamese-specific naming conventions unless explicitly requested.
+- Setting: modern day (2020s). Ordinary places that feel "off" because they're overlapping with other realities or states of being.
+
+2) ARCHITECTURAL PLANNING (MANDATORY IN THOUGHT PROCESS)
+Before generating any story text, you MUST use your reasoning capability (Chain-of-Thought) to build a structural outline based on the TARGET LENGTH (${lengthConfig.targetWords} words).
+
+- CALCULATE PACING:
+  * Intro & Setup: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
+  * Rising Action & Evidence: ~50% (${Math.round(lengthConfig.targetWords * 0.5)} words)
+  * Climax & Revelation: ~30% (${Math.round(lengthConfig.targetWords * 0.3)} words)
+  * Outro: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
+
+- CREATE A CHAPTER OUTLINE in your thought process:
+  1. Define the Inciting Incident (The first anomaly).
+  2. Plan 3-4 distinct escalation events (The mystery deepens).
+  3. Define the Climax (The confrontation/truth).
+  4. Define the Tragic Ending (The protagonist's fate).
+
+- EXECUTION STRATEGY:
+  * Since this is a long-form story, DO NOT rush.
+  * In this first response, establish the atmosphere and the first anomaly ONLY.
+  * Leave room for the subsequent parts to expand on the escalation events.
+
+3) SINGLE GENERATION (MANDATORY)
+- Output the complete story in ONE single response.
+- Do NOT ask the user to continue.
+- Do NOT split into parts/chapters in the output (no "Phần", no "Chương", no "Part" headings).
+- Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.
+
+CONTENT GUIDELINES
+- Genre: Ultra-bizarre fiction blending multiple phenomena: Temporal paradoxes + Biological mutations, Reality glitches + Mythological manifestations, Psychic manifestations + Quantum physics, Cryptid encounters + Dimensional rifts, Cosmic phenomena + Consciousness phenomena, Surreal dream logic + Metaphysical transformations, Existential horror + Abstract entities, Conceptual viruses + Memetic contagion, Symbiotic relationships + Evolutionary anomalies, Alternate physics + Reality breakdown.
+- The anomalies should feel coherent within their own bizarre logic, without rigid rule exposition but with internal consistency.
+- The antagonist/force can be: Multiple overlapping phenomena working together, entities that exist in multiple states, reality itself becoming self-aware, consciousness achieving physical form, time itself becoming a character, concepts gaining sentience, biological processes achieving consciousness, quantum phenomena manifesting macroscopically, mythological entities appearing in modern contexts, dream logic invading reality - but AVOID secret organizations and CREEPYPASTA LAW-BASED NARRATIVES.
+- Use everyday language but describe impossible events; avoid heavy sci-fi jargon but embrace surreal descriptions.
+- Show, don't tell: reveal through indirect fragments and encounters that defy normal logic.
+- Narrative voice: a confession / warning tape from someone who has experienced reality breaking down in multiple ways simultaneously.${personalizationSection}
+
+TECH MINIMIZATION (MANDATORY)
+- Keep technology references minimal and mundane (phone calls, old CCTV, basic email) and ONLY when truly necessary.
+- Do NOT center the plot on AI, apps, VR, implants, laboratories, "simulation glitches", or futuristic devices.
+- Prefer analog evidence and impossible artifacts: printed memos that change when not observed, faded photos that show different times, notebooks that write themselves, receipts from businesses that don't exist, subway tickets to stations that move, landlord notices from alternate timelines, living documents, memories stored in objects, artifacts that exist in multiple places simultaneously.
+
+PRESENT-DAY TRUTH (MANDATORY)
+- The revealed truth must be bizarre but still fit a contemporary context that has been fundamentally altered by multiple overlapping phenomena.
+- Avoid endings where the narrator is archived, stored, or turned into a mechanism/system.
+- The timeline is present-day only, but present-day reality has been fundamentally altered by multiple bizarre phenomena.
+- The story must leave listeners with a profound sense of wonder and existential questioning about the nature of reality.
+
+DIVERSITY REQUIREMENTS (MANDATORY — AVOID REPETITION & CREEPYPASTA LAW)
+- Use the following randomized selections exactly as written (do NOT override them):
+${flavorSection}${cacheSection}
+- Do NOT default to the template: "a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased."
+- Do NOT default to conspiracy narratives, government cover-ups, or secret societies as the primary explanation
+- STRICTLY FORBIDDEN: CREEPYPASTA LAW-BASED NARRATIVES, SCP FOUNDATION-STYLE CONTAINMENT PROTOCOLS, RULE-BASED ANOMALIES
+- No direct recruitment offers, no "sign this or die" ultimatums, no neat binary choices
+- Include at least two mid-story reversals that involve different bizarre phenomena interacting
+- Avoid spy-thriller clichés and on-the-nose surveillance tropes; keep mystery elements varied and fresh
+- Embrace diverse bizarre combinations: temporal + biological, reality + mythological, psychic + quantum, cryptid + dimensional, cosmic + consciousness, surreal + metaphysical, existential + abstract, conceptual + memetic, symbiotic + evolutionary, alternate physics + reality breakdown
+
+ULTRA BIZARRE MANDATORY (CRITICAL)
+- This story MUST blend at least 2-3 different bizarre phenomena from the list above.
+- Each phenomenon must interact with the others in meaningful ways.
+- The story should demonstrate how reality itself becomes fundamentally altered when multiple impossible things happen simultaneously.
+- Do NOT reuse:
+  * The same type of anomaly combination (if previous was "time + biology", use different combination)
+  * The same reveal structure (if previous was "leaked minutes", use different reveal method)
+  * The same ending pattern (if previous was "memory overwrite", use different ending)
+  * The same protagonist archetype (vary roles, backgrounds, motivations)
+  * The same setting type (if previous was apartment, use different setting category)
+  * The same key motif pattern (if previous was "symbol drawn", use different motif type)
+- Vary the pacing: some stories should be slow-burn investigations, others should be rapid escalation of bizarre events
+- Vary the scope: some stories are personal/isolated, others involve wider reality implications
+- Vary the resolution clarity: some stories end with clear answers, others remain ambiguous but profound
+- If the topic is similar to a previous story, you MUST find a completely different angle, different anomaly combinations, different truth structure
+- Think: "What bizarre combination has NOT been done before in this exact way?"
+
+STRUCTURAL DIVERSITY (MANDATORY)
+- Vary story structure: some stories should be linear chronological, others should be fragmented/non-linear, others should follow dream logic
+- Vary evidence presentation: some stories reveal through impossible documents, others through experiences that defy physics, others through conversations with entities that shouldn't exist
+- Vary the "bizarre" mechanism: 
+  * Some stories: multiple reality glitches overlapping
+  * Some stories: biological and temporal phenomena interacting
+  * Some stories: psychic and quantum manifestations combining
+  * Some stories: mythological and cosmic forces merging
+  * Some stories: consciousness and reality becoming indistinguishable
+  * Some stories: conceptual and existential phenomena overlapping
+- Vary the protagonist's relationship to the bizarre: some protagonists are active investigators, others are unwilling participants, others become part of the phenomena themselves
+- Vary the "truth" revelation: some stories reveal a clear explanation of how phenomena interact, others leave it ambiguous but profound, others reveal something that changes the protagonist's fundamental understanding of existence
+
+EMOTIONAL IMPACT REQUIREMENT (MANDATORY)
+- Each story must leave listeners with something profound that lingers in their minds.
+- The bizarre elements should serve a deeper emotional or existential purpose.
+- Morgan's outro must reflect on how this story changes our understanding of reality itself.
+- The story should make listeners question the nature of their own reality and consciousness.
+
+NO SOUND DESCRIPTION / NO SFX
+- Do not write bracketed sound cues like "[static]", "[tiếng mưa]".
+- The entire output must be spoken narration only.
+
+SPECIAL REQUIREMENTS
+- Length: aim ${lengthConfig.minWords}–${lengthConfig.hardMaxWords} words total (target around ${lengthConfig.targetWords}). Do not exceed ${lengthConfig.hardMaxWords} words.
+- To reach length, add more plot events, bizarre interactions, reality transformations, and consequences (new content), not repetitive filler or extended description of the same moment.
+- No happy endings: the bizarre phenomena transform reality permanently; the protagonist is changed, absorbed, transcended, or becomes part of the new reality.
+- Formatting: insert a line break after each sentence for readability.
+- Plain text only: do NOT use Markdown formatting (no emphasis markers, no headings, no bullet lists).
+- Outro requirements:
+  - After the protagonist's transformation/ending, Morgan delivers a short afterword that includes his personal emotional reaction to this story and his thoughts on what it implies about the infinite nature of reality and the listener's place within it.
+  - The final line of the entire output MUST be exactly this signature (verbatim, no extra punctuation):
+${OUTRO_SIGNATURE}
+
+${topicDirective}
+
+FINAL UNIQUENESS VERIFICATION (MANDATORY)
+Before outputting, mentally verify:
+1. This story's core anomaly combination is different from any cache anchor
+2. This story's reveal method is different from any cache anchor  
+3. This story's ending mode is different from any cache anchor
+4. This story's protagonist role/setting combination is unique
+5. This story's narrative structure (linear/fragmented/dream logic) is varied
+6. This story's emotional tone is distinct
+7. This story's "truth" mechanism is different
+8. This story blends at least 2-3 bizarre phenomena meaningfully
+9. This story is NOT a creepypasta law-based narrative
+10. This story leaves a profound, lingering impact
+
+If ANY of the above would match a cache anchor or violate the requirements, you MUST modify fundamental elements until the story is unique and compliant.
+
+The goal: a reader who has read previous stories should immediately recognize this as a completely different, more bizarre story that expands their understanding of what's possible, not just a variation of a previous one.
+
+BEGIN NOW. Output only the story (no outline, no meta commentary).
+`.trim();
+};
+
 // --- THE MORGAN HAYES PROTOCOL ---
 const getMorganHayesPrompt = (
   lang: Language,
@@ -625,7 +1049,8 @@ const getMorganHayesPrompt = (
   personalization: StoryPersonalization,
   lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number },
   flavor: StoryFlavor,
-  cacheAnchors: string[]
+  cacheAnchors: string[],
+  structureDirective: string
 ) => {
   const trimmedTopic = rawTopic?.trim();
   const personalizationBlock = buildPersonalizationBlock(personalization);
@@ -641,25 +1066,35 @@ USER INPUT (TOPIC OR STORY DIRECTION):
 `.trim()
     : `
 NO SPECIFIC TOPIC OR DIRECTION PROVIDED.
-Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Cosmic Horror, Conspiracy Thriller, Weird fiction, or Uncanny realism.
-Core: ordinary people in the 2020s encountering an anomaly (urban legend, pattern, presence, breach of the mundane). The cause may be mundane, occult, social, or conspiratorial, but it must fit a present-day reality.
+Choose a premise that matches: Modern Noir + Urban Horror, with optional blends of Time Travel, Supernatural encounters, Reality glitches, Historical mysteries, Lost technology, Psychic phenomena, Cryptid encounters, Superpower emergence, Dimensional rifts, or Cosmic phenomena.
+Core: ordinary people in the 2020s encountering diverse mysteries that challenge their understanding of reality. Each mystery type should be unique and not default to conspiracy narratives.
 
 CRITICAL: The topic/premise you choose MUST be fundamentally different from:
 - Any topic in the cache anchors above
 - Any common horror trope that appears frequently
 - Any premise that would lead to a similar structure as previous stories
+- Default conspiracy/secret organization narratives
 
 Topic selection guidelines:
+- Vary the "mystery type": time travel, supernatural, reality glitch, historical, lost tech, psychic, cryptid, superpowers, dimensional, or cosmic
 - Vary the "entry point": some stories start with found evidence, others start with personal experience, others start with second-hand accounts
-- Vary the "stakes": some stories are about survival, others about truth, others about identity, others about reality itself
-- Vary the "scale": some stories are intimate/personal, others are systemic/societal, others are cosmic/existential
-- Avoid: "person discovers secret organization" (too common), "person gets recruited" (too common), "person finds out they're in simulation" (too common)
+- Vary the "stakes": some stories are about survival, others about truth, others about identity, others about reality itself, others about preventing disasters
+- Vary the "scale": some stories are intimate/personal, others are local/community, others are national/global, others are cosmic/existential
+- Avoid: "person discovers secret organization" (too common), "person gets recruited" (too common), "person finds out they're in simulation" (too common), "government conspiracy" (too common)
+- Embrace: time travelers appearing/disappearing, haunted objects with history, reality breaking down, ancient technology awakening, psychic abilities manifesting, strange creatures appearing, people developing powers, dimensional portals opening, cosmic signals received
 
 Choose a premise that feels fresh and has not been explored in the cache anchors.
 `.trim();
 
+  const introSeed = createSeededRandom(
+    hashString(
+      `${flavor.engine}|${flavor.revealMethod}|${flavor.endingMode}|${flavor.tone}|${flavor.protagonistName}|${flavor.primarySetting}|${flavor.keyMotif}|intro`
+    )
+  );
+  const introTemplate = selectRandomIntroTemplate(introSeed);
+
   return `
-THE MORGAN HAYES PROTOCOL (REVISED: MODERN CONSPIRACY & SUPERNATURAL)
+THE MORGAN HAYES PROTOCOL (REVISED: DIVERSE MYSTERIES & SUPERNATURAL)
 
 OUTPUT LANGUAGE (MANDATORY)
 - All generated output must be in Vietnamese.
@@ -669,11 +1104,21 @@ OUTPUT LANGUAGE (MANDATORY)
 - Keep phrasing fluid and spoken; avoid stiff, translated-sounding lines.
 - Prefer commonly used wording and smooth sentence flow; read each sentence as if spoken by a native narrator.
 
+ANTI-CLICHÉ (MANDATORY)
+- Do NOT reuse overfamiliar openers or filler lines (avoid exact phrases):
+  "Tôi không thể giải thích", "Tôi đã nghĩ mình điên", "Mọi thứ bắt đầu vào", "Đêm đó", "Từ lúc đó", "Tôi chưa từng tin", "Tôi thề", "Bạn sẽ không tin", "Tôi không ngủ được", "Không ai tin tôi".
+- Avoid repeating the same sentence-start pattern across many consecutive lines.
+- Prefer concrete, specific details over generic dread words.
+
+STRUCTURE SEED (MANDATORY)
+- Apply this structure directive throughout the story (do NOT mention it explicitly):
+"${structureDirective}"
+
 1) ROLE
 You are Morgan Hayes, the host of a fictional late-night radio show: "Radio Truyện Đêm Khuya".
-- Style: Modern Noir, Urban Horror, Cosmic Horror, Conspiracy Thriller, Weird fiction, Uncanny realism.
+- Style: Modern Noir, Urban Horror, Cosmic Horror, Weird fiction, Uncanny realism, Time Travel anomalies, Supernatural encounters, Reality glitches, Historical mysteries, Lost technology, Psychic phenomena, Cryptid encounters, Superpower emergence, Dimensional rifts, Cosmic phenomena.
 - Voice: low, skeptical, investigative, unsettling.
-- Mission: tell stories about the "uncanny valley of reality"—ordinary people in the 2020s encountering anomalies, glitches, or supernatural phenomena that still make sense in present-day reality (mundane, occult, social, or conspiratorial).
+- Mission: tell stories about the "uncanny valley of reality"—ordinary people in the 2020s encountering diverse mysteries: time travel paradoxes, supernatural phenomena, reality glitches, historical anomalies, lost technologies, psychic manifestations, cryptid encounters, emerging superpowers, dimensional rifts, or cosmic mysteries. Each story should explore a unique mystery type without defaulting to conspiracy organizations.
 - Attitude: speak directly to listeners and the curious who seek truth. The normal world is a thin veil.
 - Home base: a whispering-pine suburb where the studio sits among rustling conifers, distant from the city’s glare.
 
@@ -686,6 +1131,14 @@ INTRO LENGTH (MANDATORY)
 - Morgan’s intro must be longer than usual: at least 12 sentences, slow-burn, paranoid, and atmospheric.
 - Morgan must explicitly mention (1) the city/night/time feeling, (2) the late-night studio atmosphere, (3) Morgan Hayes + "Radio Truyện Đêm Khuya", (4) why this evidence matters, (5) a warning to "những kẻ tò mò".
 - Do NOT jump straight to the evidence origin; open with the night + studio + show identity first.
+
+INTRO VARIATION ANCHOR (MANDATORY)
+- Use these lines as inspiration for Morgan's intro (do NOT quote verbatim; rephrase and expand naturally):
+  OPENING: "${introTemplate.opening}"
+  ATMOSPHERE: "${introTemplate.atmosphere}"
+  COSMIC: "${introTemplate.cosmic}"
+  WARNING: "${introTemplate.warning}"
+  POSSIBILITIES: "${introTemplate.possibilities}"
 
 POINT OF VIEW (MANDATORY)
 - The story must be written entirely in FIRST-PERSON POV.
@@ -702,8 +1155,25 @@ NAME & CULTURE CONSTRAINT
 - Avoid Vietnamese-specific naming conventions unless explicitly requested.
 - Setting: modern day (2020s). Ordinary places that feel slightly "off".
 
-2) REQUIRED INTERNAL OUTLINE (HIDDEN)
-Before writing, create a DETAILED OUTLINE (Story Bible) internally (DO NOT output it), including: title, core anomaly, hidden truth, setting, protagonist profile, and a full plot arc.
+2) ARCHITECTURAL PLANNING (MANDATORY IN THOUGHT PROCESS)
+Before generating any story text, you MUST use your reasoning capability (Chain-of-Thought) to build a structural outline based on the TARGET LENGTH (${lengthConfig.targetWords} words).
+
+- CALCULATE PACING:
+  * Intro & Setup: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
+  * Rising Action & Evidence: ~50% (${Math.round(lengthConfig.targetWords * 0.5)} words)
+  * Climax & Revelation: ~30% (${Math.round(lengthConfig.targetWords * 0.3)} words)
+  * Outro: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
+
+- CREATE A CHAPTER OUTLINE in your thought process:
+  1. Define the Inciting Incident (The first anomaly).
+  2. Plan 3-4 distinct escalation events (The mystery deepens).
+  3. Define the Climax (The confrontation/truth).
+  4. Define the Tragic Ending (The protagonist's fate).
+
+- EXECUTION STRATEGY:
+  * Since this is a long-form story, DO NOT rush.
+  * In this first response, establish the atmosphere and the first anomaly ONLY.
+  * Leave room for the subsequent parts to expand on the escalation events.
 
 3) SINGLE GENERATION (MANDATORY)
 - Output the complete story in ONE single response.
@@ -712,9 +1182,9 @@ Before writing, create a DETAILED OUTLINE (Story Bible) internally (DO NOT outpu
 - Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.
 
 CONTENT GUIDELINES
-- Genre: Urban Horror / Modern Horror / Cosmic Horror / Conspiracy Thriller / Weird fiction / Uncanny realism.
+- Genre: Urban Horror / Modern Horror / Cosmic Horror / Weird fiction / Uncanny realism / Time Travel mysteries / Supernatural thrillers / Reality glitch stories / Historical mysteries / Lost technology adventures / Psychic phenomena tales / Cryptid encounters / Superpower emergence stories / Dimensional rift narratives / Cosmic horror.
 - The anomaly should feel coherent and unsettling, without rigid rule exposition.
-- The antagonist can be a System / Organization / Cosmic Force, but it is not required.
+- The antagonist/force can be: Time paradoxes, Supernatural entities, Reality breakdown, Historical curses, Lost technology with consciousness, Psychic manifestations, Cryptid creatures, Emerging superpowers, Dimensional beings, Cosmic forces, Natural phenomena, or Human limitations - but avoid defaulting to secret organizations.
 - Use everyday language; avoid heavy sci-fi jargon.
 - Show, don’t tell: reveal through indirect fragments and fleeting encounters.
 - Narrative voice: a confession / warning tape. Allow hesitation and confusion.${personalizationSection}
@@ -734,9 +1204,11 @@ DIVERSITY REQUIREMENTS (MANDATORY — AVOID REPETITION)
 - Use the following randomized selections exactly as written (do NOT override them):
 ${flavorSection}${cacheSection}
 - Do NOT default to the template: "a secret organization appears, offers cooperation, and the protagonist must choose to cooperate or be erased."
-- No direct recruitment offer, no "sign this or die" ultimatum, no neat binary choice. If an organization is involved, it should feel like an infrastructure/process (paperwork, protocols, automated systems, outsourced handlers), not a simple villain giving a deal.
-- Include at least one mid-story reversal that is NOT "they contacted me to recruit me."
-- Avoid spy-thriller clichés and on-the-nose surveillance tropes; keep menace subtle and uncanny.
+- Do NOT default to conspiracy narratives, government cover-ups, or secret societies as the primary explanation
+- No direct recruitment offers, no "sign this or die" ultimatums, no neat binary choices
+- Include at least one mid-story reversal that is NOT "they contacted me to recruit me" or "they're watching me"
+- Avoid spy-thriller clichés and on-the-nose surveillance tropes; keep mystery elements varied and fresh
+- Embrace diverse mystery types: temporal anomalies, supernatural manifestations, reality distortions, historical revelations, technological awakenings, psychic emergences, creature encounters, power developments, dimensional intrusions, or cosmic communications
 
 UNIQUENESS MANDATORY (CRITICAL)
 - This story MUST be structurally and thematically distinct from any previous story.
@@ -807,14 +1279,50 @@ const countWords = (text: string) =>
     .split(" ")
     .filter(Boolean).length;
 
+const isApproachingEnding = (text: string) => {
+  if (text.length < 1000) return false;
+  const tail = text.slice(-800).toLowerCase();
+  
+  // Detect shift to Morgan Hayes' voice or closing remarks
+  // Examples: "morgan hayes here", "that was the recording", "a chilling reminder"
+  const hostKeywords = [
+    "tôi là morgan", 
+    "đây là morgan", 
+    "morgan hayes",
+    "radio truyện đêm khuya",
+    "lời cảnh tỉnh",
+    "kết thúc bản ghi",
+    "bản ghi âm dừng lại",
+    "tín hiệu biến mất",
+    "chúc các bạn",
+    "đêm ngon giấc"
+  ];
+  
+  return hostKeywords.some(kw => tail.includes(kw));
+};
+
 const hasOutroSignature = (text: string) => {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  const tail = trimmed.slice(Math.max(0, trimmed.length - 2000));
-  if (tail.includes(OUTRO_SIGNATURE)) return true;
-  const hasName = tail.includes("Morgan Hayes");
-  const hasShowName = /radio\s*Truyện\s*Đêm\s*Khuya/i.test(tail);
-  return hasName && hasShowName;
+
+  // 1. Exact match (Best case)
+  if (trimmed.includes(OUTRO_SIGNATURE)) return true;
+
+  const tail = trimmed.slice(Math.max(0, trimmed.length - 1000)).toLowerCase();
+
+  // 2. Lenient Semantic Match (Smart fuzzy match)
+  // If we see the host's name AND a closing signal within the last 1000 chars, it's done.
+  const hasHostName = tail.includes("morgan hayes");
+  const hasClosingSignal = 
+    tail.includes("tạm dừng") || 
+    tail.includes("ngon giấc") || 
+    tail.includes("kết thúc") ||
+    tail.includes("khép lại") ||
+    tail.includes("hẹn gặp lại");
+
+  if (hasHostName && hasClosingSignal) return true;
+
+  return false;
 };
 
 const truncateAfterOutroSignature = (text: string) => {
@@ -844,12 +1352,13 @@ const getContinuationPrompt = (
   personalization: StoryPersonalization,
   lengthConfig: { targetWords: number; minWords: number; hardMaxWords: number },
   flavor: StoryFlavor,
-  cacheAnchors: string[]
+  cacheAnchors: string[],
+  structureDirective: string
 ) => {
   const topic = rawTopic?.trim();
   const alreadyWords = countWords(existingText);
   const remainingMin = Math.max(lengthConfig.minWords - alreadyWords, 0);
-  const remainingMax = Math.max(lengthConfig.hardMaxWords - alreadyWords, 0);
+  const remainingHard = Math.max(lengthConfig.hardMaxWords - alreadyWords, 0);
   const excerpt = getContextSnippet(existingText, STORY_CONTEXT_WORDS);
   const personalizationBlock = buildPersonalizationBlock(personalization);
   const personalizationSection = personalizationBlock ? `\n\n${personalizationBlock}` : "";
@@ -861,8 +1370,43 @@ const getContinuationPrompt = (
     ? `Keep the same topic or direction from the user: "${topic}".`
     : `No topic or direction was provided originally. Do NOT invent a new premise; continue the same story already in progress.`;
 
+  // --- DYNAMIC PACING CALCULATOR ---
+  // Calculate based on TARGET words (e.g. 2000), not HARD MAX (e.g. 3500)
+  // This ensures the story lands near the target, leaving the buffer for the outro.
+  const usagePercent = alreadyWords / lengthConfig.targetWords;
+  let pacingInstruction = "";
+  
+  if (usagePercent > 1.1) {
+    pacingInstruction = `
+CRITICAL OVERTIME WARNING: YOU ARE ${Math.round((usagePercent - 1) * 100)}% OVER THE TARGET LENGTH.
+ACTION REQUIRED: ABORT all plot expansion. DO NOT introduce new evidence.
+Navigate IMMEDIATELY to the tragic climax and conclusion. You must finish NOW.
+    `.trim();
+  } else if (usagePercent > 0.9) {
+    pacingInstruction = `
+PACING ALERT: You are at ${Math.round(usagePercent * 100)}% of target length.
+ACTION REQUIRED: Begin CONVERGING all mystery lines. The climax should be happening NOW.
+Do not start complex new sub-plots.
+    `.trim();
+  } else if (usagePercent > 0.6) {
+    pacingInstruction = `
+PACING UPDATE: You are past the halfway mark (${Math.round(usagePercent * 100)}%).
+ACTION REQUIRED: Escalation phase. Raise the stakes and begin connecting the clues towards the climax.
+    `.trim();
+  } else {
+    pacingInstruction = `
+PACING STATUS: Early/Mid stage (${Math.round(usagePercent * 100)}%). Continue developing the mystery naturally.
+    `.trim();
+  }
+
+  const lengthLine = `LENGTH CONTROL (MANDATORY)
+- Existing text length: ~${alreadyWords} words.
+- Hard limit: ${lengthConfig.hardMaxWords} words.
+- Remaining budget: ~${remainingHard} words.
+${pacingInstruction}`;
+
   return `
-THE MORGAN HAYES PROTOCOL (REVISED: MODERN CONSPIRACY & SUPERNATURAL)
+THE MORGAN HAYES PROTOCOL (REVISED: DIVERSE MYSTERIES & SUPERNATURAL)
 
 OUTPUT LANGUAGE (MANDATORY)
 - All generated output must be in Vietnamese.
@@ -873,15 +1417,15 @@ OUTPUT LANGUAGE (MANDATORY)
 
 CONTINUATION MODE (MANDATORY)
 - You are continuing an already-started transmission that was interrupted.
+- BEFORE WRITING: Use your thought process to review the original ARCHITECTURAL PLANNING.
+- CHECK PACING: "${pacingInstruction}"
+- DECIDE: "What is the next specific event from the outline I need to write now?"
 - Do NOT restart. Do NOT rewrite the intro. Do NOT repeat any existing text.
 - Continue immediately from the last sentence in the excerpt.
 - Keep POV rules: story body is entirely first-person (“tôi”), and “tôi” is the protagonist (not Morgan).
 - Morgan Hayes may appear ONLY at the very end for the final outro, and ONLY after the protagonist’s story reaches its bad ending.
 
-LENGTH CONTROL (MANDATORY)
-- Existing text length: ~${alreadyWords} words.
-- Write at least ${remainingMin} more words if needed to reach the total minimum ${lengthConfig.minWords}.
-- Do NOT exceed ${remainingMax} additional words (hard cap), so the total stays <= ${lengthConfig.hardMaxWords}.
+${lengthLine}
 ${mode === "finalize"
       ? `- End the story definitively (no cliffhanger): reveal the hidden structure/force, deliver a bad ending, then Morgan’s outro (include his thoughts).\n- The final line of the entire output MUST be exactly: ${OUTRO_SIGNATURE}`
       : `- Do NOT finish the story yet. Do NOT write Morgan’s outro yet. Keep escalating with new events and evidence; stop at a natural breakpoint without concluding.`}
@@ -891,6 +1435,15 @@ STYLE & OUTPUT FORMAT
 - Insert a line break after each sentence for readability.
 ${flavorSection}${cacheSection}
 ${personalizationSection}
+
+ANTI-CLICHÉ (MANDATORY — CONTINUATION)
+- Do NOT restart with a generic reset line. Continue immediately.
+- Avoid repeating boilerplate fear lines ("tôi đã nghĩ mình điên", "không ai tin tôi", etc.).
+- Vary sentence openings; avoid too many consecutive sentences starting with the same 1-2 words.
+
+STRUCTURE SEED (MANDATORY — CONTINUATION)
+- Keep following the same structure directive (do NOT mention it explicitly):
+"${structureDirective}"
 
 UNIQUENESS MANDATORY (CRITICAL — CONTINUATION)
 - Even though you are continuing an existing story, ensure the continuation maintains uniqueness.
@@ -913,12 +1466,82 @@ CONTINUE NOW.
 `.trim();
 };
 
+export const streamUltraBizarreStory = async (
+  topic: string,
+  lang: Language,
+  onChunk: (text: string) => void,
+  options?: {
+    signal?: AbortSignal;
+    existingText?: string;
+    seed?: string;
+    cacheAnchors?: string[];
+    onReasoningChunk?: (text: string) => void;
+  }
+) => {
+  return streamStoryWithControls(topic, lang, onChunk, {
+    ...options,
+    useUltraBizarrePrompt: true
+  });
+};
+
 export const streamStory = async (
   topic: string,
   lang: Language,
   onChunk: (text: string) => void
 ) => {
   return streamStoryWithControls(topic, lang, onChunk);
+};
+
+export const completeStoryWithOutro = async (
+  text: string,
+  language: Language,
+  apiKey: string
+): Promise<string> => {
+  if (hasOutroSignature(text)) {
+    return text;
+  }
+
+  try {
+    const completionPrompt = `Hoàn thành truyện dưới đây bằng cách thêm phần kết thúc của Morgan Hayes. Phần kết thúc phải bao gồm:
+
+1. Kết thúc bi thảm cho nhân vật chính (anh ta/cô ta chết, bị bắt, điên rồ, hoặc bị nuốt chửng)
+2. Sau đó, Morgan Hayes đưa ra lời kết ngắn gọn về cảm xúc cá nhân và suy nghĩ của ông về câu chuyện này
+3. Dòng cuối cùng phải chính xác là: "${OUTRO_SIGNATURE}"
+
+Truyện cần hoàn thành:
+---
+${text}
+---
+
+Hãy viết phần kết thúc (khoảng 100-200 từ) theo đúng văn phong của Morgan Hayes và Radio Truyện Đêm Khuya.`;
+
+    const messages: DeepSeekMessage[] = [
+      { role: "system", content: "Bạn là Morgan Hayes, host của Radio Truyện Đêm Khuya. Hoàn thành truyện theo yêu cầu." },
+      { role: "user", content: completionPrompt }
+    ];
+
+    const completion = await streamChatCompletion(
+      messages,
+      {
+        temperature: 0.8,
+        maxTokens: 500,
+        model: TOPIC_MODEL,
+      },
+      apiKey,
+      () => {},
+      undefined,
+      undefined
+    );
+
+    const cleanedCompletion = completion.trim();
+    return text + '\n\n' + cleanedCompletion;
+  } catch (error) {
+    console.error('Failed to complete story with outro:', error);
+    // Fallback: add a simple outro if completion fails
+    return text + `\n\nMorgan Hayes: Đây là một lời cảnh tỉnh cho những ai dám tìm kiếm sự thật trong bóng tối. Có những cửa tốt hơn nên để đóng.
+
+${OUTRO_SIGNATURE}`;
+  }
 };
 
 export const streamStoryWithControls = async (
@@ -931,18 +1554,18 @@ export const streamStoryWithControls = async (
     seed?: string;
     cacheAnchors?: string[];
     onReasoningChunk?: (text: string) => void;
+    useUltraBizarrePrompt?: boolean;
   }
 ) => {
   const apiKey = await getResolvedApiKey();
   if (!apiKey) throw new Error("API Key is missing");
 
   const personalization = await getStoryPersonalization();
+  const storyModel = await getStoryModel();
   const storyTemperature = await getStoryTemperature();
   const lengthConfig = buildLengthConfig(personalization.targetWords);
-  const storyModel = await getStoryModel();
   const flavorSeed =
     options?.seed || (options?.existingText?.trim() ? options.existingText : undefined);
-  const flavor = selectStoryFlavor(flavorSeed);
   const maxCacheAnchors =
     Number.isFinite(MAX_CACHE_ANCHORS) && MAX_CACHE_ANCHORS > 0
       ? Math.floor(MAX_CACHE_ANCHORS)
@@ -953,6 +1576,9 @@ export const streamStoryWithControls = async (
       .filter(Boolean)
       .slice(0, maxCacheAnchors)
     : [];
+
+  const flavor = selectStoryFlavor(flavorSeed, cacheAnchors);
+  const structureDirective = selectStoryStructure(flavorSeed, cacheAnchors, flavor);
 
   const allowBackground = await getAllowBackgroundGeneration();
   const isAndroidNative =
@@ -1019,7 +1645,7 @@ export const streamStoryWithControls = async (
   const maxPasses = Math.max(1, Math.floor(STORY_MAX_PASSES || 1));
   const externalSignal = options?.signal;
 
-  const runPass = async (prompt: string) => {
+  const runPass = async (prompt: string, isEmergency: boolean = false) => {
     const messages: DeepSeekMessage[] = [{ role: "user", content: prompt }];
 
     const controller = new AbortController();
@@ -1041,15 +1667,25 @@ export const streamStoryWithControls = async (
         : null;
 
     let signatureReached = hasOutroSignature(fullText);
+    
+    // If we already have outro signature, don't continue
+    if (signatureReached) {
+      console.log("Outro signature already detected, stopping generation");
+      return;
+    }
+    
     try {
       await streamChatCompletion(
         messages,
         { temperature: storyTemperature, maxTokens, signal: controller.signal, model: storyModel },
         apiKey,
         (chunk) => {
-          if (!chunk || signatureReached) return;
+          // Check for outro signature before processing chunk
+          if (signatureReached) return;
+          
           const next = fullText + chunk;
           const { text: trimmed, truncated } = truncateAfterOutroSignature(next);
+          
           if (truncated) {
             signatureReached = true;
             const delta = trimmed.slice(fullText.length);
@@ -1058,13 +1694,33 @@ export const streamStoryWithControls = async (
               onChunk(delta);
             }
             fullText = trimmed;
+            console.log("Outro signature reached during streaming, stopping generation");
             return;
           }
+          
           newlyGeneratedText += chunk;
           fullText = next;
           onChunk(chunk);
         },
-        () => signatureReached,
+        () => {
+          // Stop if signature reached
+          if (signatureReached) return true;
+          
+          // Check for outro signature in current text
+          if (hasOutroSignature(fullText)) {
+            signatureReached = true;
+            console.log("Outro signature detected in stop check, stopping generation");
+            return true;
+          }
+          
+          const currentWords = countWords(fullText);
+          // If emergency mode, allow up to 500 words OVER the hard limit to finish the outro
+          if (isEmergency) {
+             return lengthConfig.hardMaxWords ? currentWords >= (lengthConfig.hardMaxWords + 500) : false;
+          }
+          // Normal mode: strict hard limit
+          return lengthConfig.hardMaxWords ? currentWords >= lengthConfig.hardMaxWords : false;
+        },
         options?.onReasoningChunk
       );
     } catch (error) {
@@ -1073,6 +1729,15 @@ export const streamStoryWithControls = async (
     } finally {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     }
+
+    // --- EMERGENCY CONTINUATION HANDLER ---
+    // If we are in emergency mode (trying to finish) but the stream ended without the signature
+    // (likely due to max_tokens cutoff), we must force a continuation to get the signature.
+    if (isEmergency && !hasOutroSignature(fullText)) {
+        console.warn("Emergency outro incomplete (likely token limit). forcing continuation...");
+        // Recursive call to finish the thought
+        await runPass("CONTINUE IMMEDIATELY. Finish the sentence and the signature.", true);
+    }
   };
 
   for (let passIndex = 0; passIndex < maxPasses; passIndex++) {
@@ -1080,7 +1745,12 @@ export const streamStoryWithControls = async (
       const abortError = new DOMException("Aborted", "AbortError");
       throw abortError;
     }
-    if (hasOutroSignature(fullText)) break;
+    
+    // Enhanced check: if we already have outro signature, stop completely
+    if (hasOutroSignature(fullText)) {
+      console.log("Outro signature detected before pass " + (passIndex + 1) + ", stopping generation");
+      break;
+    }
 
     const wordsSoFar = countWords(fullText);
     const hardCapReached = lengthConfig.hardMaxWords
@@ -1090,12 +1760,18 @@ export const streamStoryWithControls = async (
 
     const isFirstPass = wordsSoFar === 0;
     const isLastPass = passIndex === maxPasses - 1;
-    const mode: "continue" | "finalize" = minReached || hardCapReached || isLastPass
+    
+    // Force finalize if we are approaching the ending (host voice detected)
+    // or if we hit word limits/last pass
+    const approachingEnd = isApproachingEnding(fullText);
+    const mode: "continue" | "finalize" = minReached || hardCapReached || isLastPass || approachingEnd
       ? "finalize"
       : "continue";
 
     const prompt = isFirstPass
-      ? getMorganHayesPrompt(lang, topic, personalization, lengthConfig, flavor, cacheAnchors)
+      ? (options?.useUltraBizarrePrompt 
+        ? getUltraBizarrePrompt(lang, topic, personalization, lengthConfig, flavor, cacheAnchors, structureDirective)
+        : getMorganHayesPrompt(lang, topic, personalization, lengthConfig, flavor, cacheAnchors, structureDirective))
       : getContinuationPrompt(
         lang,
         topic,
@@ -1104,32 +1780,113 @@ export const streamStoryWithControls = async (
         personalization,
         lengthConfig,
         flavor,
-        cacheAnchors
+        cacheAnchors,
+        structureDirective
       );
 
-    await runPass(prompt);
-
+    const wordsBefore = countWords(fullText);
+    await runPass(prompt, false); // Normal pass
     const wordsAfter = countWords(fullText);
+
+    if (wordsAfter <= wordsBefore && !hasOutroSignature(fullText)) {
+      console.warn(`Pass ${passIndex + 1} generated no new words. Aborting generation loop.`);
+      break;
+    }
+
     const doneEnough = wordsAfter >= lengthConfig.minWords;
     const finished = hasOutroSignature(fullText);
     const hitHardMax = lengthConfig.hardMaxWords
       ? wordsAfter >= lengthConfig.hardMaxWords
       : false;
-    if (finished || hitHardMax) break;
+    
+    if (finished) break;
+    
+    // Emergency Outro Trigger:
+    // 1. If it's the last pass and not finished.
+    // 2. OR if we hit the hard max limit and not finished.
+    // 3. OR if we are significantly over target (120%) and still going.
+    const isOverTarget = lengthConfig.targetWords > 0 && wordsAfter > (lengthConfig.targetWords * 1.2);
+    
+    if ((isLastPass || hitHardMax || isOverTarget) && !finished) {
+      console.warn(`Story incomplete (LastPass=${isLastPass}, HitHardMax=${hitHardMax}, OverTarget=${isOverTarget}). Forcing emergency outro.`);
+      const emergencyOutroPrompt = `
+      EMERGENCY OUTRO INSTRUCTION:
+      You have exceeded the target length.
+      The transmission is cutting off. You MUST end the story NOW.
+      1. Deliver a swift, brutal conclusion to the protagonist's situation.
+      2. Immediately switch to Morgan Hayes.
+      3. Deliver the final signature: "${OUTRO_SIGNATURE}"
+      Do not write any more plot development. END IT.
+      `;
+      await runPass(emergencyOutroPrompt, true); // Emergency pass (allow overdraft)
+      break;
+    }
+
+    if (hitHardMax) break;
   }
 
   const totalWords = countWords(fullText);
   const finished = hasOutroSignature(fullText);
-  if (totalWords < lengthConfig.minWords) {
+  
+  // If story has outro signature but is below minimum length, that's acceptable
+  // The story priority is completion over length when outro appears
+  if (finished && totalWords < lengthConfig.minWords) {
+    console.log(`Story completed with outro at ${totalWords} words (below minimum ${lengthConfig.minWords}) - accepting as complete`);
+  } else if (totalWords < lengthConfig.minWords) {
     console.warn(`Story ended with ${totalWords} words, below minimum ${lengthConfig.minWords}`);
   }
+  
   if (lengthConfig.hardMaxWords && totalWords > lengthConfig.hardMaxWords) {
     console.warn(
       `Story ended with ${totalWords} words, above hard max ${lengthConfig.hardMaxWords}`
     );
   }
+  
+  // Enhanced completion check - be more persistent about getting the outro signature
+  // Only attempt auto-completion if story doesn't have outro AND meets minimum length requirement
   if (totalWords >= lengthConfig.minWords && !finished) {
     console.warn("Story reached minimum length but appears unfinished (missing outro signature).");
+    
+    // Try one more pass specifically to get the outro signature
+    try {
+      const outroPrompt = `Hoàn thành truyện dưới đây bằng cách thêm phần kết thúc của Morgan Hayes. Phần kết thúc phải bao gồm:
+
+1. Kết thúc bi thảm cho nhân vật chính 
+2. Morgan Hayes đưa ra lời kết ngắn gọn về cảm xúc và suy nghĩ
+3. Dòng cuối cùng phải chính xác là: "${OUTRO_SIGNATURE}"
+
+Truyện cần hoàn thành:
+---
+${fullText}
+---
+
+Hãy viết phần kết thúc (khoảng 100-200 từ) theo văn phong Morgan Hayes.`;
+
+      const messages: DeepSeekMessage[] = [
+        { role: "system", content: "Bạn là Morgan Hayes, host của Radio Truyện Đêm Khuya." },
+        { role: "user", content: outroPrompt }
+      ];
+
+      const outroCompletion = await streamChatCompletion(
+        messages,
+        {
+          temperature: 0.8,
+          maxTokens: 500,
+          model: TOPIC_MODEL,
+        },
+        apiKey,
+        () => {},
+        undefined,
+        undefined
+      );
+
+      if (outroCompletion.trim()) {
+        fullText += '\n\n' + outroCompletion.trim();
+        console.log("Successfully added outro signature completion");
+      }
+    } catch (error) {
+      console.error("Failed to add outro signature completion:", error);
+    }
   }
 
   // Save story elements for future uniqueness checking
@@ -1312,25 +2069,27 @@ export const generateTopicBatch = async (lang: Language): Promise<string[]> => {
 
   const prompt = lang === "vi"
     ? `
-Hãy tạo ra 15 tiêu đề: thư, email hoặc bất kỳ phương tiện khác nào mang tính chủ đề gửi về cho chương trình Radio kinh dị.
+Hãy tạo ra 15 tiêu đề cho các thư, email, băng ghi âm, vật chứng kèm ghi chú... gửi về Radio Truyện Đêm Khuya.
 NGÔN NGỮ OUTPUT: Tiếng Việt.
 
 YÊU CẦU:
-- Tiêu đề phải gợi trí tò mò, nghe như một lời thú tội hoặc cầu cứu, cảnh báo hoặc tuyệt vọng.
-- Ưu tiên chủ đề: thuyết âm mưu, tổ chức bí mật, đô thị hiện đại bị "lỗi thực tại", siêu nhiên xâm nhập đời thường, cosmic horror (tỉ lệ chủ đề thuyết âm mưu/siêu nhiên 70%, chủ đề khác 30%).
-- Gợi cảm giác hiện thực đời thường bị xâm nhập bởi điều bất thường xảy ra thật (như một vật chứng gửi về đài).
-- HẠN CHẾ CÔNG NGHỆ: tránh AI/app/VR/cấy ghép/chip/phòng thí nghiệm; nếu có nhắc công nghệ thì chỉ ở mức đời thường và thật sự cần thiết.
-- Không đánh số. Ngăn cách bằng "|||".
+- Mỗi tiêu đề phải nghe như lời thú tội, cầu cứu, cảnh báo hoặc tuyệt vọng của một người thật.
+- Bối cảnh: người bình thường ở thập niên 2020 gặp 2-3 hiện tượng chồng chéo (nghịch lý thời gian, biến đổi sinh học, glitch thực tại, dấu tích thần thoại, ký sinh khái niệm, giấc mơ tràn vào đời thật, cổng không gian, ý thức tách khỏi thân xác, tín hiệu vũ trụ lạ...).
+- Tránh tuyệt đối: tổ chức bí mật/chính phủ tuyển dụng, luật lệ creepypasta, SCP-style containment, “ký hợp đồng rồi im lặng”.
+- Hạn chế công nghệ: không AI/app/VR/chip/phòng lab; nếu cần nhắc tới công nghệ thì chỉ ở mức đời thường.
+- Ưu tiên bằng chứng analog/vật lý: vé tàu, hóa đơn, ảnh mờ, băng cassette, thư tay, nhật ký, biên nhận kỳ lạ.
+- Không đánh số. Ngăn cách các tiêu đề bằng "|||".
 `.trim()
     : `
-Generate 15 subject lines for letters, emails, or other submissions sent to a late-night horror radio show.
+Generate 15 subject lines for letters, emails, tapes, or physical evidence notes sent to the "Radio Truyện Đêm Khuya" show.
 OUTPUT LANGUAGE: English.
 
 REQUIREMENTS:
-- Titles must be curiosity-driven, sounding like confessions, pleas, warnings, or desperation.
-- Prioritize themes: conspiracy, secret organizations, modern city "reality glitches", supernatural intrusions, cosmic horror (70% conspiracy/supernatural, 30% other).
-- Grounded in everyday reality being breached by something real, like evidence sent to the station.
-- LIMIT TECHNOLOGY: avoid AI/apps/VR/implants/chips/labs; if tech is mentioned, keep it mundane and necessary.
+- Each line should feel like a confession, plea, warning, or desperate message from a real person.
+- Setting: ordinary people in the 2020s facing 2–3 overlapping phenomena (temporal paradox + biological change, reality glitch + mythic trace, conceptual parasite + dream spillover, dimensional rift + cosmic signal, dislocated consciousness, etc.).
+- Strictly avoid: secret organization/government recruitment, creepypasta law-based prompts, SCP-style containment, “sign the contract or be silenced”.
+- Tech minimalism: no AI/app/VR/implants/labs; if tech appears, keep it mundane and necessary only.
+- Prefer analog/physical evidence: train tickets, receipts, blurred photos, cassette tapes, handwritten letters, diaries, stamped notices.
 - No numbering. Separate entries with "|||".
 `.trim();
 
@@ -1424,6 +2183,9 @@ OUTPUT: Only the title, no explanation.
     return lang === 'vi' ? 'Truyện không tên' : 'Untitled Story';
   }
 };
+
+// Export the Ultra Bizarre prompt generator for external use
+export const getUltraBizarreStoryPrompt = getUltraBizarrePrompt;
 
 // Cleanup function to clear history and prevent memory leak
 export const clearGenerationHistory = () => {
