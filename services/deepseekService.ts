@@ -917,20 +917,25 @@ Before generating any story text, you MUST use your reasoning capability (Chain-
 
 - CALCULATE PACING:
   * Intro & Setup: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
-  * Rising Action & Evidence: ~50% (${Math.round(lengthConfig.targetWords * 0.5)} words)
-  * Climax & Revelation: ~30% (${Math.round(lengthConfig.targetWords * 0.3)} words)
+  * Core Narrative Arc: ~50% (${Math.round(lengthConfig.targetWords * 0.5)} words)
+  * Major Turn/Climax: ~30% (${Math.round(lengthConfig.targetWords * 0.3)} words)
   * Outro: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
 
-- CREATE A CHAPTER OUTLINE in your thought process:
-  1. Define the Inciting Incident (The first anomaly).
-  2. Plan 3-4 distinct escalation events (The mystery deepens).
-  3. Define the Climax (The confrontation/truth).
-  4. Define the Tragic Ending (The protagonist's fate).
+- DESIGN A NON-FORMULAIC NARRATIVE ARC:
+  Instead of a standard "investigation -> discovery -> death" loop, create a unique flow.
+  Choose one of these abstract structures (or invent a new one) for your outline:
+  * The "Spiral": A small, mundane event repeats with increasing, surreal distortion until reality breaks.
+  * The "Inversion": The protagonist tries to fix a small problem, but their "fix" creates a worse, impossible reality.
+  * The "Drift": The protagonist wanders through a changing landscape where logic dissolves; there is no antagonist, only the environment.
+  * The "Fragment": Disconnected scenes or memories that coalesce into a horrifying realization about the protagonist's nature.
+  * The "Metamorphosis": The protagonist is not a victim but a catalyst; they change into something else.
 
+  CRITICAL: Do NOT simply write a story about a curious person investigating a noise.
+  
 - EXECUTION STRATEGY:
   * Since this is a long-form story, DO NOT rush.
-  * In this first response, establish the atmosphere and the first anomaly ONLY.
-  * Leave room for the subsequent parts to expand on the escalation events.
+  * In this first response, establish the atmosphere and the initial state of the world/protagonist.
+  * Leave room for the narrative to evolve unpredictably.
 
 3) SINGLE GENERATION (MANDATORY)
 - Output the complete story in ONE single response.
@@ -939,9 +944,12 @@ Before generating any story text, you MUST use your reasoning capability (Chain-
 - Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.
 
 CONTENT GUIDELINES
+- BREAK THE PATTERN: The protagonist DOES NOT need to be "curious". They can be indifferent, annoyed, oblivious, or actively trying to ignore the anomaly.
+- AVOID THE "PRICE" CLICHÉ: The protagonist does not always have to "pay a price" for investigating. Sometimes the anomaly just IS. It happens to them without reason.
+- UNPREDICTABLE CONSEQUENCES: The ending does not have to be death. It can be a shift in reality, a change in the protagonist's biology, a loop, or a realization that the "normal" world was the fake one.
 - Genre: Ultra-bizarre fiction blending multiple phenomena: Temporal paradoxes + Biological mutations, Reality glitches + Mythological manifestations, Psychic manifestations + Quantum physics, Cryptid encounters + Dimensional rifts, Cosmic phenomena + Consciousness phenomena, Surreal dream logic + Metaphysical transformations, Existential horror + Abstract entities, Conceptual viruses + Memetic contagion, Symbiotic relationships + Evolutionary anomalies, Alternate physics + Reality breakdown.
 - The anomalies should feel coherent within their own bizarre logic, without rigid rule exposition but with internal consistency.
-- The antagonist/force can be: Multiple overlapping phenomena working together, entities that exist in multiple states, reality itself becoming self-aware, consciousness achieving physical form, time itself becoming a character, concepts gaining sentience, biological processes achieving consciousness, quantum phenomena manifesting macroscopically, mythological entities appearing in modern contexts, dream logic invading reality - but AVOID secret organizations and CREEPYPASTA LAW-BASED NARRATIVES.
+- The antagonist/force can be: Reality itself, time, memory, or abstract concepts. AVOID secret organizations and standard monsters.
 - Use everyday language but describe impossible events; avoid heavy sci-fi jargon but embrace surreal descriptions.
 - Show, don't tell: reveal through indirect fragments and encounters that defy normal logic.
 - Narrative voice: a confession / warning tape from someone who has experienced reality breaking down in multiple ways simultaneously.${personalizationSection}
@@ -1160,20 +1168,25 @@ Before generating any story text, you MUST use your reasoning capability (Chain-
 
 - CALCULATE PACING:
   * Intro & Setup: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
-  * Rising Action & Evidence: ~50% (${Math.round(lengthConfig.targetWords * 0.5)} words)
-  * Climax & Revelation: ~30% (${Math.round(lengthConfig.targetWords * 0.3)} words)
+  * Core Narrative Arc: ~50% (${Math.round(lengthConfig.targetWords * 0.5)} words)
+  * Major Turn/Climax: ~30% (${Math.round(lengthConfig.targetWords * 0.3)} words)
   * Outro: ~10% (${Math.round(lengthConfig.targetWords * 0.1)} words)
 
-- CREATE A CHAPTER OUTLINE in your thought process:
-  1. Define the Inciting Incident (The first anomaly).
-  2. Plan 3-4 distinct escalation events (The mystery deepens).
-  3. Define the Climax (The confrontation/truth).
-  4. Define the Tragic Ending (The protagonist's fate).
+- DESIGN A NON-FORMULAIC NARRATIVE ARC:
+  Instead of a standard "investigation -> discovery -> death" loop, create a unique flow.
+  Choose one of these abstract structures (or invent a new one) for your outline:
+  * The "Spiral": A small, mundane event repeats with increasing, surreal distortion until reality breaks.
+  * The "Inversion": The protagonist tries to fix a small problem, but their "fix" creates a worse, impossible reality.
+  * The "Drift": The protagonist wanders through a changing landscape where logic dissolves; there is no antagonist, only the environment.
+  * The "Fragment": Disconnected scenes or memories that coalesce into a horrifying realization about the protagonist's nature.
+  * The "Metamorphosis": The protagonist is not a victim but a catalyst; they change into something else.
 
+  CRITICAL: Do NOT simply write a story about a curious person investigating a noise.
+  
 - EXECUTION STRATEGY:
   * Since this is a long-form story, DO NOT rush.
-  * In this first response, establish the atmosphere and the first anomaly ONLY.
-  * Leave room for the subsequent parts to expand on the escalation events.
+  * In this first response, establish the atmosphere and the initial state of the world/protagonist.
+  * Leave room for the narrative to evolve unpredictably.
 
 3) SINGLE GENERATION (MANDATORY)
 - Output the complete story in ONE single response.
@@ -1182,6 +1195,9 @@ Before generating any story text, you MUST use your reasoning capability (Chain-
 - Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.
 
 CONTENT GUIDELINES
+- BREAK THE PATTERN: The protagonist DOES NOT need to be "curious". They can be indifferent, annoyed, oblivious, or actively trying to ignore the anomaly.
+- AVOID THE "PRICE" CLICHÉ: The protagonist does not always have to "pay a price" for investigating. Sometimes the anomaly just IS. It happens to them without reason.
+- UNPREDICTABLE CONSEQUENCES: The ending does not have to be death. It can be a shift in reality, a change in the protagonist's biology, a loop, or a realization that the "normal" world was the fake one.
 - Genre: Urban Horror / Modern Horror / Cosmic Horror / Weird fiction / Uncanny realism / Time Travel mysteries / Supernatural thrillers / Reality glitch stories / Historical mysteries / Lost technology adventures / Psychic phenomena tales / Cryptid encounters / Superpower emergence stories / Dimensional rift narratives / Cosmic horror.
 - The anomaly should feel coherent and unsettling, without rigid rule exposition.
 - The antagonist/force can be: Time paradoxes, Supernatural entities, Reality breakdown, Historical curses, Lost technology with consciousness, Psychic manifestations, Cryptid creatures, Emerging superpowers, Dimensional beings, Cosmic forces, Natural phenomena, or Human limitations - but avoid defaulting to secret organizations.

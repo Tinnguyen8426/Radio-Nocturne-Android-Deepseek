@@ -831,13 +831,16 @@ public class BackgroundStoryService extends Service {
             "- Avoid Vietnamese-specific naming conventions unless explicitly requested.\n" +
             "- Setting: modern day (2020s). Ordinary places that feel slightly \"off\".\n\n" +
             "2) REQUIRED INTERNAL OUTLINE (HIDDEN)\n" +
-            "Before writing, create a DETAILED OUTLINE (Story Bible) internally (DO NOT output it), including: title, core anomaly, hidden truth, setting, protagonist profile, and a full plot arc.\n\n" +
+            "Before writing, create a DETAILED OUTLINE (Story Bible) internally (DO NOT output it). Design a unique flow: maybe the protagonist is the anomaly, or the setting is the enemy. Avoid the standard 'investigate -> die' loop.\n\n" +
             "3) SINGLE GENERATION (MANDATORY)\n" +
             "- Output the complete story in ONE single response.\n" +
             "- Do NOT ask the user to continue.\n" +
             "- Do NOT split into parts/chapters in the output (no “Phần”, no “Chương”, no “Part” headings).\n" +
             "- Do NOT conclude early. If you are approaching output limits, stop at a natural breakpoint without an outro; the system may request continuation.\n\n" +
             "CONTENT GUIDELINES\n" +
+            "- BREAK THE PATTERN: The protagonist DOES NOT need to be \"curious\". They can be indifferent, annoyed, oblivious, or actively trying to ignore the anomaly.\n" +
+            "- AVOID THE \"PRICE\" CLICHÉ: The protagonist does not always have to \"pay a price\" for investigating. Sometimes the anomaly just IS. It happens to them without reason.\n" +
+            "- UNPREDICTABLE CONSEQUENCES: The ending does not have to be death. It can be a shift in reality, a change in the protagonist's biology, a loop, or a realization that the \"normal\" world was the fake one.\n" +
             "- Genre: Urban Horror / Modern Horror / Cosmic Horror / Weird fiction / Uncanny realism / Time Travel mysteries / Supernatural thrillers / Reality glitch stories / Historical mysteries / Lost technology adventures / Psychic phenomena tales / Cryptid encounters / Superpower emergence stories / Dimensional rift narratives / Cosmic horror.\n" +
             "- The anomaly should feel coherent and unsettling, without rigid rule exposition.\n" +
             "- The antagonist/force can be: Time paradoxes, Supernatural entities, Reality breakdown, Historical curses, Lost technology with consciousness, Psychic manifestations, Cryptid creatures, Emerging superpowers, Dimensional beings, Cosmic forces, Natural phenomena, or Human limitations - but avoid defaulting to secret organizations.\n" +
